@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("asesor")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leads           Lead[]
+  activities      LeadActivity[]
+  statusHistories LeadStatusHistory[]
+  notes           LeadNote[]
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  nombre          String
+  telefono        String
+  correo          String?
+  edad            Int
+  ciudad          String
+  estado          String?
+  yaEstaPensionado String
+  temaInteres     String
+  tieneSemanasCotizadas String?
+  fuente          String?
+  objetivoPrincipal String?
+  situacion       String
+  categoria       String   @default("No clasificado")
+  prioridad       String   @default("Media")
+  viabilidad      String   @default("Necesita más información")
+  estadoLead      String   @default("Nuevo")
+  userId          String?
+  fechaUltimoContacto DateTime?
+  fechaProximaAccion  DateTime?
+  notasInternas       String?
+  telefonoNormalizado String?
+   scoreViabilidad     Int?
+   etiquetaViabilidad  String?
+   vecesRecibido       Int      @default(1)
+   resumenIA           String?
+   createdAt           DateTime @default(now())
+   updatedAt           DateTime @updatedAt
+
+  asignadoA       User?        @relation(fields: [userId], references: [id])
+  activities      LeadActivity[]
+  statusHistories LeadStatusHistory[]
+  notes           LeadNote[]
+
+  @@index([estadoLead])
+  @@index([prioridad])
+  @@index([telefonoNormalizado])
+  @@index([correo])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+model LeadActivity {
+  id        String   @id @default(cuid())
+  leadId    String
+  tipo      String
+  nota      String?
+  userId    String?
+  createdAt DateTime @default(now())
+
+  lead Lead  @relation(fields: [leadId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model LeadStatusHistory {
+  id        String   @id @default(cuid())
+  leadId    String
+  estadoAnterior String?
+  estadoNuevo    String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  lead Lead  @relation(fields: [leadId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model LeadNote {
+  id        String   @id @default(cuid())
+  leadId    String
+  contenido String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  lead Lead  @relation(fields: [leadId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}

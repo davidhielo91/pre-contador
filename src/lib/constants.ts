@@ -1,0 +1,122 @@
+export const TEMAS_INTERES = [
+  "Ley 73",
+  "Ley 97",
+  "Modalidad 40",
+  "Modalidad 10",
+  "Pensión baja",
+  "Invalidez",
+  "Viudez",
+  "No sé",
+] as const;
+
+export const OBJETIVOS_PRINCIPALES = [
+  "Saber si ya me puedo pensionar",
+  "Saber cuánto podría recibir",
+  "Mejorar mi pensión",
+  "Revisar una pensión baja",
+  "Modalidad 40",
+  "Modalidad 10",
+  "No estoy seguro",
+] as const;
+
+export const ESTADOS_LEAD = [
+  "Nuevo",
+  "Contactado",
+  "Archivado",
+] as const;
+
+export const CATEGORIAS_INTERNAS = [
+  "Ley 73",
+  "Ley 97",
+  "Modalidad 40",
+  "Modalidad 10",
+  "Pensión baja Ley 73 probable",
+  "Cambio cesantía a vejez probable",
+  "Invalidez",
+  "Viudez",
+  "Beneficiarios",
+  "No clasificado",
+  "Requiere revisión manual",
+  "No viable por ahora",
+] as const;
+
+export const PRIORIDADES = ["Alta", "Media", "Baja"] as const;
+
+export const VIABILIDADES = [
+  "Recomendar diagnóstico",
+  "Necesita más información",
+  "No viable por ahora",
+  "Revisión manual",
+] as const;
+
+export const FUENTES = [
+  "TikTok",
+  "Facebook",
+  "YouTube",
+  "Google",
+  "Recomendación",
+  "Otro",
+] as const;
+
+export const TIPOS_ACTIVIDAD = [
+  "lead_creado",
+  "clasificacion_automatica",
+  "formulario_reenviado",
+  "whatsapp_enviado",
+  "correo_enviado",
+  "nota_agregada",
+  "estado_cambiado",
+  "archivado",
+] as const;
+
+export const ESTADOS_TERMINALES = ["Archivado"];
+export const ROLES = ["administrador", "asesor"] as const;
+
+export const PRIORIDAD_COLORS: Record<string, string> = {
+  "Alta": "text-red-600 bg-red-50 border-red-200",
+  "Media": "text-amber-600 bg-amber-50 border-amber-200",
+  "Baja": "text-slate-600 bg-slate-50 border-slate-200",
+};
+
+export const SCORE_COLORS: Record<string, string> = {
+  "Candidato fuerte": "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800",
+  "Revisar": "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800",
+  "Baja viabilidad": "text-slate-600 bg-slate-100 border-slate-200 dark:text-slate-400 dark:bg-slate-800/40 dark:border-slate-700",
+};
+
+export const SEGMENTOS = [
+  "Todos",
+  "Invalidez",
+  "Ley 73",
+  "Cambio cesantía",
+  "Pensión baja",
+  "Requiere revisión",
+  "Regresaron",
+] as const;
+
+export const COSTO_POR_FUENTE: Record<string, number> = {
+  Facebook: 0,
+  TikTok: 0,
+  YouTube: 0,
+  Google: 0,
+  Recomendación: 0,
+  Otro: 0,
+};
+
+export const LANDING_URL = "https://pensiones.contadorgerardohuerta.com";
+
+export const SCORE_UMBRAL_FUERTE = 70;
+export const SCORE_UMBRAL_REVISAR = 40;
+export const PENSION_MINIMA_GARANTIZADA = 10_634;
+
+export const ETIQUETAS_SCORE = {
+  FUERTE: "Candidato fuerte",
+  REVISAR: "Revisar",
+  BAJA: "Baja viabilidad",
+} as const;
+
+export const ESTADO_COLORS: Record<string, string> = {
+  "Nuevo":      "text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-950/40 dark:border-blue-800",
+  "Contactado": "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800",
+  "Archivado":  "text-slate-600 bg-slate-100 border-slate-200 dark:text-slate-400 dark:bg-slate-800/40 dark:border-slate-700",
+};

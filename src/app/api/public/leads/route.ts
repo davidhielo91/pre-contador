@@ -1,0 +1,122 @@
+import { NextRequest, NextResponse } from "next/server";
+import { crearLeadConClasificacion } from "@/lib/classification";
+import { enviarPushNotificacion } from "@/lib/push";
+
+const RATE_LIMIT_WINDOW = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 5;
+const requestLog = new Map<string, number[]>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = requestLog.get(ip) || [];
+  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW);
+  if (recent.length >= MAX_REQUESTS_PER_WINDOW) return false;
+  recent.push(now);
+  requestLog.set(ip, recent);
+  return true;
+}
+
+const REQUIRED_FIELDS = [
+  "nombre",
+  "telefono",
+  "edad",
+  "ciudad",
+  "yaEstaPensionado",
+  "temaInteres",
+  "situacion",
+];
+
+export async function POST(request: NextRequest) {
+  const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes. Intente más tarde." },
+      { status: 429 }
+    );
+  }
+
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return NextResponse.json(
+      { error: "Content-Type debe ser application/json" },
+      { status: 415 }
+    );
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "JSON inválido" },
+      { status: 400 }
+    );
+  }
+
+  for (const field of REQUIRED_FIELDS) {
+    if (!body[field] || (typeof body[field] === "string" && !body[field].toString().trim())) {
+      return NextResponse.json(
+        { error: `El campo "${field}" es requerido` },
+        { status: 400 }
+      );
+    }
+  }
+
+  const edad = parseInt(body.edad as string, 10);
+  if (isNaN(edad) || edad < 18 || edad > 120) {
+    return NextResponse.json(
+      { error: "Edad inválida" },
+      { status: 400 }
+    );
+  }
+
+  if (!/^(si|no|no_sé|no_se)$/i.test(body.yaEstaPensionado as string)) {
+    return NextResponse.json(
+      { error: "yaEstaPensionado debe ser 'si', 'no' o 'no sé'" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { lead, esDuplicado } = await crearLeadConClasificacion({
+      nombre: body.nombre as string,
+      telefono: body.telefono as string,
+      correo: (body.correo as string) || undefined,
+      edad,
+      ciudad: body.ciudad as string,
+      estado: (body.estado as string) || undefined,
+      yaEstaPensionado: (body.yaEstaPensionado as string).toLowerCase(),
+      temaInteres: body.temaInteres as string,
+      tieneSemanasCotizadas: (body.tieneSemanasCotizadas as string) || undefined,
+      fuente: (body.fuente as string) || undefined,
+      objetivoPrincipal: (body.objetivoPrincipal as string) || undefined,
+      situacion: body.situacion as string,
+    });
+
+    if (!esDuplicado) {
+      enviarPushNotificacion({
+        title: `Nuevo lead · ${lead.prioridad} prioridad`,
+        body: `${lead.nombre} · ${lead.temaInteres} · ${lead.ciudad}`,
+        url: `/leads/${lead.id}`,
+      }).catch(() => {});
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: esDuplicado
+          ? "Información actualizada en tu expediente existente"
+          : "Lead recibido correctamente",
+        leadId: lead.id,
+        esDuplicado,
+      },
+      { status: esDuplicado ? 200 : 201 }
+    );
+  } catch (error) {
+    console.error("Error creating lead:", error);
+    return NextResponse.json(
+      { error: "Error interno del servidor" },
+      { status: 500 }
+    );
+  }
+}

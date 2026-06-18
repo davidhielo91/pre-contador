@@ -1,0 +1,536 @@
+import { prisma } from "./prisma";
+import {
+  LANDING_URL,
+  SCORE_UMBRAL_FUERTE,
+  SCORE_UMBRAL_REVISAR,
+  PENSION_MINIMA_GARANTIZADA,
+  ETIQUETAS_SCORE,
+  CATEGORIAS_INTERNAS,
+  ESTADOS_TERMINALES,
+} from "./constants";
+import { notificarNuevoLead, enviarConfirmacionCliente } from "./email";
+import type { Lead } from "@prisma/client";
+
+export interface LeadInput {
+  nombre: string;
+  telefono: string;
+  correo?: string;
+  edad: number;
+  ciudad: string;
+  estado?: string;
+  yaEstaPensionado: string;
+  temaInteres: string;
+  tieneSemanasCotizadas?: string;
+  fuente?: string;
+  objetivoPrincipal?: string;
+  situacion: string;
+  createdAt?: Date;
+}
+
+interface ClassificationResult {
+  categoria: string;
+  prioridad: string;
+  viabilidad: string;
+}
+
+export interface ScoreResult {
+  score: number;
+  etiqueta: string;
+}
+
+function detectarCategoria(input: LeadInput): string {
+  const s = input.situacion.toLowerCase();
+  const tema = input.temaInteres.toLowerCase();
+
+  if (input.yaEstaPensionado === "si" && tema.includes("pensi") && s.includes("baja")) {
+    return "Pensión baja Ley 73 probable";
+  }
+  if (/me pension[ée] a los 60|cesant[íi]a|pensi[óo]n baja|me pagan poco/.test(s)) {
+    return "Cambio cesantía a vejez probable";
+  }
+  if (s.includes("invalidez")) {
+    return "Invalidez";
+  }
+  if (/viudez|viuda|esposo fallecido/.test(s)) {
+    return "Viudez";
+  }
+  if (tema.includes("modalidad 40")) {
+    return "Modalidad 40";
+  }
+  if (tema.includes("modalidad 10")) {
+    return "Modalidad 10";
+  }
+  if (tema.includes("ley 73")) {
+    return "Ley 73";
+  }
+  if (tema.includes("ley 97")) {
+    return "Ley 97";
+  }
+
+  return "Requiere revisión manual";
+}
+
+function detectarPrioridad(input: LeadInput): string {
+  const s = input.situacion.toLowerCase();
+  const tema = input.temaInteres.toLowerCase();
+
+  const esUrgente = /urgente|ya me pension[ée]|no alcanza|no me alcanza|necesito ayuda urgente/.test(s);
+  if (input.yaEstaPensionado === "si" && s.includes("baja")) return "Alta";
+  if (s.includes("invalidez")) return "Alta";
+  if (input.edad > 60) return "Alta";
+  if (esUrgente) return "Alta";
+
+  if (/modalidad 40|modalidad 10|ley 73|proyecci[óo]n/.test(tema)) return "Media";
+  if (input.edad >= 50 && input.edad <= 60) return "Media";
+
+  if (input.edad < 35) return "Baja";
+  if (!input.objetivoPrincipal || input.objetivoPrincipal === "No estoy seguro") return "Baja";
+  if (!input.situacion || input.situacion.length < 10) return "Baja";
+
+  return "Media";
+}
+
+function detectarViabilidad(input: LeadInput): string {
+  const s = input.situacion.toLowerCase();
+
+  if (input.edad < 25) return "No viable por ahora";
+  if (s.includes("solo quiero saber") && !s.includes("pensi")) return "No viable por ahora";
+
+  const infoSuficiente =
+    input.objetivoPrincipal &&
+    input.objetivoPrincipal !== "No estoy seguro" &&
+    input.situacion &&
+    input.situacion.length > 15 &&
+    input.tieneSemanasCotizadas === "si";
+
+  if (infoSuficiente) return "Recomendar diagnóstico";
+  if (input.edad >= 45 && input.edad <= 70) return "Recomendar diagnóstico";
+
+  return "Necesita más información";
+}
+
+export function clasificarLead(input: LeadInput): ClassificationResult {
+  return {
+    categoria: detectarCategoria(input),
+    prioridad: detectarPrioridad(input),
+    viabilidad: detectarViabilidad(input),
+  };
+}
+
+const PALABRAS_CLAVE_MONTO = /\b(pensi[óo]n|cheque|actual|me llega|recibo|pagan|paga)\b/;
+const RE_SEMANAS = /\bsemanas?\b/;
+
+function crearPatronDolar() { return /(\$[\d,.\s]*(?:\d[\d,.]*)?)/gi; }
+function crearPatronMoneda() { return /(\d+(?:[.,]\d+)*)\s*(?:mensuales|pesos|MN\b|MXN)/gi; }
+
+function normalizarNumero(raw: string): number {
+  return parseFloat(raw.trim().replace(/\s/g, "").replace(/,/g, ""));
+}
+
+export function extraerMontoPension(texto: string): number | null {
+  const lower = texto.toLowerCase();
+  const matches: { valor: number; contexto: string }[] = [];
+
+  let m: RegExpExecArray | null;
+
+  const p1 = crearPatronDolar();
+  while ((m = p1.exec(lower)) !== null) {
+    const raw = m[1].replace(/[^0-9.,]/g, "");
+    if (!raw) continue;
+    const start = Math.max(0, m.index - 35);
+    const end = Math.min(lower.length, m.index + m[0].length + 50);
+    matches.push({ valor: normalizarNumero(raw), contexto: lower.slice(start, end) });
+  }
+
+  const p2 = crearPatronMoneda();
+  while ((m = p2.exec(lower)) !== null) {
+    const raw = m[1];
+    if (!raw) continue;
+    const start = Math.max(0, m.index - 35);
+    const end = Math.min(lower.length, m.index + m[0].length + 50);
+    matches.push({ valor: normalizarNumero(raw), contexto: lower.slice(start, end) });
+  }
+
+  if (matches.length === 0) return null;
+
+  const sinSemanas = matches.filter((m) => !RE_SEMANAS.test(m.contexto));
+  const candidatos = sinSemanas.length > 0 ? sinSemanas : matches;
+
+  const conKeyword = candidatos.filter((m) => PALABRAS_CLAVE_MONTO.test(m.contexto));
+
+  if (conKeyword.length > 0) {
+    return Math.min(...conKeyword.map((m) => m.valor));
+  }
+
+  return Math.min(...candidatos.map((m) => m.valor));
+}
+
+export function calcularScoreViabilidad(
+  input: LeadInput,
+  categoria: string,
+): ScoreResult {
+  const tema = input.temaInteres.toLowerCase();
+  const cat = categoria.toLowerCase();
+  let score = 0;
+
+  // Ley 73: +30
+  if (tema === "ley 73" || cat.includes("ley 73")) {
+    score += 30;
+  }
+
+  // Pensionado por cesantía o invalidez: +25
+  if (
+    input.yaEstaPensionado === "si" &&
+    (cat.includes("cesant") || cat.includes("invalidez"))
+  ) {
+    score += 25;
+  }
+
+  // Pensión mencionada por debajo de la mínima garantizada: +25
+  const monto = extraerMontoPension(input.situacion);
+  if (monto !== null && monto < PENSION_MINIMA_GARANTIZADA) {
+    score += 25;
+  }
+
+  // Edad 60-70: +10
+  if (input.edad >= 60 && input.edad <= 70) {
+    score += 10;
+  }
+
+  // Semanas cotizadas (proxy): +10
+  if (input.tieneSemanasCotizadas === "si") {
+    score += 10;
+  }
+  // TODO: cuando se tenga campo numérico de semanas, reemplazar proxy
+  // con: if (semanasNumericas > 0) score += 10
+
+  // Penalización: categoría sin datos → cap a 40
+  if (
+    categoria === "Requiere revisión manual" ||
+    tema === "otro"
+  ) {
+    score = Math.min(score, 40);
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  let etiqueta: string;
+  if (score >= SCORE_UMBRAL_FUERTE) {
+    etiqueta = ETIQUETAS_SCORE.FUERTE;
+  } else if (score >= SCORE_UMBRAL_REVISAR) {
+    etiqueta = ETIQUETAS_SCORE.REVISAR;
+  } else {
+    etiqueta = ETIQUETAS_SCORE.BAJA;
+  }
+
+  return { score, etiqueta };
+}
+
+export function normalizarTelefono(tel: string): string {
+  const digits = tel.replace(/\D/g, "");
+  // Strip Mexican country code: +52 makes 12 digits, remove leading 52
+  if (digits.length === 12 && digits.startsWith("52")) {
+    return digits.slice(2);
+  }
+  return digits;
+}
+
+async function encontrarLeadDuplicado(
+  input: LeadInput,
+  telNorm: string
+): Promise<Lead | null> {
+  const correoNorm = input.correo?.toLowerCase().trim() ?? null;
+
+  return prisma.lead.findFirst({
+    where: {
+      OR: [
+        { telefonoNormalizado: telNorm },
+        { telefono: input.telefono },
+        ...(correoNorm ? [{ correo: correoNorm }] : []),
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+async function manejarLeadDuplicado(
+  existente: Lead,
+  input: LeadInput
+): Promise<Lead> {
+  const scoreResult = calcularScoreViabilidad(input, existente.categoria);
+
+  const updated = await prisma.lead.update({
+    where: { id: existente.id },
+    data: {
+      vecesRecibido: { increment: 1 },
+      situacion: input.situacion,
+      fuente: input.fuente ?? existente.fuente,
+      scoreViabilidad: scoreResult.score,
+      etiquetaViabilidad: scoreResult.etiqueta,
+    },
+  });
+
+  await prisma.leadActivity.create({
+    data: {
+      leadId: existente.id,
+      tipo: "formulario_reenviado",
+      nota: `Volvió a enviar el formulario (${updated.vecesRecibido}ª vez). Fuente: ${input.fuente ?? "desconocida"} | Score: ${scoreResult.score} (${scoreResult.etiqueta})`,
+    },
+  });
+
+  return updated;
+}
+
+async function asignarLeadAlAdmin(): Promise<string | null> {
+  const admin = await prisma.user.findFirst({
+    where: { role: "administrador", active: true },
+    select: { id: true },
+  });
+  return admin?.id ?? null;
+}
+
+export async function crearLeadConClasificacion(
+  input: LeadInput,
+  { enviarNotificacion = true, saltarDuplicados = false }: { enviarNotificacion?: boolean; saltarDuplicados?: boolean } = {}
+): Promise<{ lead: Lead; esDuplicado: boolean }> {
+  const telNorm = normalizarTelefono(input.telefono);
+  const duplicado = await encontrarLeadDuplicado(input, telNorm);
+
+  if (duplicado) {
+    if (saltarDuplicados) return { lead: duplicado, esDuplicado: true };
+    const lead = await manejarLeadDuplicado(duplicado, input);
+    return { lead, esDuplicado: true };
+  }
+
+  const clasificacion = clasificarLead(input);
+  const scoreResult = calcularScoreViabilidad(input, clasificacion.categoria);
+  const correoNorm = input.correo?.toLowerCase().trim() ?? null;
+  const asignadoA = await asignarLeadAlAdmin();
+
+  const lead = await prisma.lead.create({
+    data: {
+      nombre: input.nombre,
+      telefono: input.telefono,
+      correo: correoNorm,
+      edad: input.edad,
+      ciudad: input.ciudad,
+      estado: input.estado || null,
+      yaEstaPensionado: input.yaEstaPensionado,
+      temaInteres: input.temaInteres,
+      tieneSemanasCotizadas: input.tieneSemanasCotizadas || null,
+      fuente: input.fuente || null,
+      objetivoPrincipal: input.objetivoPrincipal || null,
+      situacion: input.situacion,
+      categoria: clasificacion.categoria,
+      prioridad: clasificacion.prioridad,
+      viabilidad: clasificacion.viabilidad,
+      estadoLead: "Nuevo",
+      telefonoNormalizado: telNorm,
+      vecesRecibido: 1,
+      scoreViabilidad: scoreResult.score,
+      etiquetaViabilidad: scoreResult.etiqueta,
+      userId: asignadoA,
+      ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+    },
+  });
+
+  const asignadoName = asignadoA
+    ? (await prisma.user.findUnique({ where: { id: asignadoA }, select: { name: true } }))?.name
+    : null;
+
+  await prisma.leadActivity.create({
+    data: {
+      leadId: lead.id,
+      tipo: "lead_creado",
+      nota: `Lead creado desde formulario público${asignadoName ? ` · Asignado a: ${asignadoName}` : ""}`,
+    },
+  });
+
+  await prisma.leadActivity.create({
+    data: {
+      leadId: lead.id,
+      tipo: "clasificacion_automatica",
+      nota: `Clasificado como: ${clasificacion.categoria} | Prioridad: ${clasificacion.prioridad} | Viabilidad: ${clasificacion.viabilidad} | Score: ${scoreResult.score} (${scoreResult.etiqueta})`,
+    },
+  });
+
+  if (enviarNotificacion) {
+    notificarNuevoLead({
+      nombre:      input.nombre,
+      telefono:    input.telefono,
+      edad:        input.edad,
+      ciudad:      input.ciudad,
+      temaInteres: input.temaInteres,
+      situacion:   input.situacion,
+      fuente:      input.fuente,
+      categoria:   clasificacion.categoria,
+      prioridad:   clasificacion.prioridad,
+      score:       scoreResult.score,
+      etiqueta:    scoreResult.etiqueta,
+    }).catch(() => {});
+
+    if (correoNorm) {
+      enviarConfirmacionCliente({
+        nombre: input.nombre,
+        correo: correoNorm,
+      }).catch(() => {});
+    }
+
+  }
+
+  return { lead, esDuplicado: false };
+}
+
+export function generarMensajeWhatsApp(nombre: string, situacion: string): string {
+  const n = nombre.split(" ")[0];
+  return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos la información que nos compartió sobre su caso de pensión IMSS. Aquí puede conocer en qué consiste el Diagnóstico de Pensión IMSS y agendar su cita:
+${LANDING_URL}`;
+}
+
+export function generarMensajeWAContextual(
+  nombre: string,
+  temaInteres: string,
+  edad: number,
+  prioridad?: string,
+): string {
+  const n = nombre.split(" ")[0];
+  const t = temaInteres.toLowerCase();
+  const url = LANDING_URL;
+
+  const notaPrioridad = prioridad === "Alta"
+    ? "\n\nPor las características de su caso, le recomendamos revisarlo pronto."
+    : "";
+
+  // Pensionado con pensión baja
+  if (t.includes("pensionado") || t.includes("pensión baja") || t.includes("pension baja")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información. Si ya está pensionado y tiene dudas sobre el monto que recibe, en nuestro Diagnóstico de Pensión IMSS analizamos su resolución y expediente para ver si existe alguna alternativa aplicable.${notaPrioridad}
+
+Aquí puede conocer el proceso y agendar su cita:
+${url}`;
+  }
+
+  // Ley 73
+  if (t.includes("ley 73")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información sobre Ley 73. Los resultados dependen del historial de cotización de cada persona — por eso lo analizamos a detalle en el Diagnóstico de Pensión IMSS.${notaPrioridad}
+
+Aquí puede conocer en qué consiste y agendar su cita:
+${url}`;
+  }
+
+  // Modalidad 40
+  if (t.includes("modalidad 40")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información sobre Modalidad 40. Antes de tomar cualquier decisión conviene analizarla con los cálculos correctos — eso es precisamente lo que revisamos en el Diagnóstico de Pensión IMSS.${notaPrioridad}
+
+Aquí puede conocer el proceso y agendar su cita:
+${url}`;
+  }
+
+  // Modalidad 10
+  if (t.includes("modalidad 10")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información sobre Modalidad 10. Es una figura que puede ser útil dependiendo del historial de cotización, y la analizamos a detalle en el Diagnóstico de Pensión IMSS.${notaPrioridad}
+
+Aquí puede conocer en qué consiste y agendar su cita:
+${url}`;
+  }
+
+  // Conservación de derechos
+  if (t.includes("conservación") || t.includes("conservacion")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información sobre conservación de derechos pensionarios. Hay plazos y condiciones específicas que dependen de cada historial — los revisamos en detalle en el Diagnóstico de Pensión IMSS.${notaPrioridad}
+
+Aquí puede conocer el proceso y agendar su cita:
+${url}`;
+  }
+
+  // Semanas cotizadas
+  if (t.includes("semanas")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información. Conocer exactamente sus semanas cotizadas y lo que significan para su pensión es el punto de partida — eso es lo que analizamos en el Diagnóstico de Pensión IMSS.${notaPrioridad}
+
+Aquí puede conocer el proceso y agendar su cita:
+${url}`;
+  }
+
+  // AFORE / Ley 97
+  if (t.includes("afore") || t.includes("ley 97")) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información sobre ${temaInteres}. Entender bien el saldo acumulado y las opciones de retiro disponibles marca una diferencia importante — por eso lo analizamos en el Diagnóstico de Pensión IMSS.${notaPrioridad}
+
+Aquí puede conocer el proceso y agendar su cita:
+${url}`;
+  }
+
+  // Mayor de 60
+  if (edad >= 60) {
+    return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos su información. A sus ${edad} años es un momento clave para tener claridad sobre su situación pensionaria — hay opciones y plazos importantes que conviene revisar.${notaPrioridad}
+
+Aquí puede conocer en qué consiste el Diagnóstico de Pensión IMSS y agendar su cita:
+${url}`;
+  }
+
+  // Genérico
+  return `Hola ${n}, le contactamos del Despacho Fiscal 2087.
+
+Revisamos la información que nos compartió sobre su caso de pensión IMSS. Para orientarle según su situación particular, le compartimos el enlace a nuestro Diagnóstico de Pensión IMSS:${notaPrioridad}
+
+${url}`;
+}
+
+export function generarCorreo(nombre: string, prioridad?: string): { asunto: string; cuerpo: string } {
+  if (prioridad === "Alta") {
+    return {
+      asunto: "Revisamos su caso — Diagnóstico de Pensión IMSS",
+      cuerpo: `Hola, ${nombre}.
+
+Recibimos su información y la revisamos con atención. Por las características de su situación, le recomendamos conocer nuestro Diagnóstico de Pensión IMSS a la brevedad.
+
+Aquí encuentra toda la información y puede agendar su cita directamente:
+
+${LANDING_URL}
+
+Despacho Fiscal 2087
+Contador Gerardo Huerta`,
+    };
+  }
+
+  if (prioridad === "Baja") {
+    return {
+      asunto: "Información sobre pensión IMSS — Despacho Fiscal 2087",
+      cuerpo: `Hola, ${nombre}.
+
+Recibimos su consulta sobre pensión IMSS. Cuando lo considere oportuno, aquí puede conocer en qué consiste nuestro Diagnóstico de Pensión IMSS y agendar su cita:
+
+${LANDING_URL}
+
+Despacho Fiscal 2087
+Contador Gerardo Huerta`,
+    };
+  }
+
+  return {
+    asunto: "Revisión de su caso de pensión IMSS — Despacho Fiscal 2087",
+    cuerpo: `Hola, ${nombre}.
+
+Recibimos la información que nos compartió. Para conocer cómo podemos ayudarle y agendar su Diagnóstico de Pensión IMSS, aquí tiene toda la información:
+
+${LANDING_URL}
+
+Despacho Fiscal 2087
+Contador Gerardo Huerta`,
+  };
+}

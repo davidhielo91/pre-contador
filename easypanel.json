@@ -1,0 +1,32 @@
+{
+  "name": "gestor-leads-prediagnostico",
+  "type": "dockerfile",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "env": {
+    "DATABASE_URL": "postgresql://usuario:contraseña@db:5432/pensiones_leads",
+    "AUTH_SECRET": "",
+    "AUTH_URL": "",
+    "ADMIN_EMAIL": "admin@despacho.com",
+    "ADMIN_PASSWORD": ""
+  },
+  "services": [
+    {
+      "type": "postgres",
+      "version": "16",
+      "name": "db"
+    }
+  ],
+  "ports": [
+    {
+      "port": 3000,
+      "protocol": "http"
+    }
+  ],
+  "healthCheck": {
+    "path": "/login",
+    "port": 3000
+  }
+}

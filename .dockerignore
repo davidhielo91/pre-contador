@@ -1,0 +1,14 @@
+node_modules
+.npm
+.next
+.git
+.gitignore
+.env
+.env.local
+*.md
+.DS_Store
+**/*.tsbuildinfo
+skills-lock.json
+AGENTS.md
+CLAUDE.md
+CONTEXT.md

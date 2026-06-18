@@ -1,0 +1,207 @@
+import { LANDING_URL } from "./constants";
+
+const MISTRAL_BASE = "https://api.mistral.ai/v1/chat/completions";
+
+interface MistralMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+interface MistralOptions {
+  model?: string;
+  max_tokens?: number;
+  temperature?: number;
+  response_format?: { type: "json_object" };
+}
+
+async function mistral(messages: MistralMessage[], options: MistralOptions = {}): Promise<string> {
+  const res = await fetch(MISTRAL_BASE, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.MISTRAL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: options.model ?? "mistral-small-latest",
+      messages,
+      max_tokens: options.max_tokens ?? 500,
+      temperature: options.temperature ?? 0.7,
+      ...(options.response_format ? { response_format: options.response_format } : {}),
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Mistral API error: ${res.status}`);
+
+  const data = await res.json() as { choices: Array<{ message: { content: string } }> };
+  return data.choices[0]?.message?.content?.trim() ?? "";
+}
+
+export interface LeadParaMensaje {
+  nombre: string;
+  edad: number;
+  ciudad: string;
+  temaInteres: string;
+  situacion: string;
+  categoria: string;
+  prioridad: string;
+  yaEstaPensionado: string;
+  objetivoPrincipal?: string | null;
+}
+
+export async function generarResumenConIA(lead: LeadParaMensaje & { viabilidad: string; scoreViabilidad?: number | null }): Promise<string> {
+  const yaEstaP =
+    lead.yaEstaPensionado === "si" ? "ya está pensionado" :
+    lead.yaEstaPensionado === "no" ? "aún no está pensionado" :
+    "no sabe si está pensionado";
+
+  const prompt = `Eres parte del equipo del Despacho Fiscal 2087, especializado en pensiones IMSS.
+Redacta un párrafo de resumen interno del caso de este prospecto para que el Contador Gerardo Huerta pueda revisar rápidamente los puntos clave antes de atenderlo.
+
+DATOS DEL PROSPECTO:
+- Nombre: ${lead.nombre}
+- Edad: ${lead.edad} años
+- Ciudad: ${lead.ciudad}
+- Tema de interés: ${lead.temaInteres}
+- Situación de pensión: ${yaEstaP}
+- Lo que comentó: "${lead.situacion}"
+${lead.objetivoPrincipal ? `- Objetivo declarado: ${lead.objetivoPrincipal}` : ""}
+- Categoría interna: ${lead.categoria}
+- Prioridad: ${lead.prioridad}
+- Viabilidad: ${lead.viabilidad}
+
+REGLAS:
+- Un solo párrafo, máximo 5 oraciones.
+- Escrito en tercera persona (él/ella), no dirigido al prospecto.
+- Resume: quién es, qué quiere saber, su situación respecto a la pensión, y qué tan viable parece el caso.
+- Tono objetivo, sin adornos ni frases de venta.
+- No inventes datos que no estén en los campos anteriores.
+- No uses bullet points. Solo el párrafo.`;
+
+  return mistral([{ role: "user", content: prompt }], { max_tokens: 300, temperature: 0.4 });
+}
+
+export async function generarCorreoConIA(lead: LeadParaMensaje): Promise<{ asunto: string; cuerpo: string }> {
+  const yaEstaP =
+    lead.yaEstaPensionado === "si" ? "ya está pensionado" :
+    lead.yaEstaPensionado === "no" ? "aún no está pensionado" :
+    "no sabe si está pensionado";
+
+  const prompt = `Eres parte del equipo del Despacho Fiscal 2087, despacho especializado en pensiones IMSS dirigido por el Contador Gerardo Huerta, con sede en Ciudad Juárez, Chihuahua.
+
+Tu tarea es redactar el correo de primer contacto con un prospecto que dejó sus datos.
+
+DATOS DEL PROSPECTO:
+- Nombre: ${lead.nombre.split(" ")[0]}
+- Tema de interés: ${lead.temaInteres}
+- Edad: ${lead.edad} años
+- Ciudad: ${lead.ciudad}
+- Situación de pensión: ${yaEstaP}
+- Lo que comentó: "${lead.situacion}"
+${lead.objetivoPrincipal ? `- Objetivo: ${lead.objetivoPrincipal}` : ""}
+
+REGLAS DE CONTENIDO:
+- 3 párrafos cortos. Máximo 3 oraciones por párrafo.
+- Escribe en nombre del despacho (nosotros), NO en nombre personal del contador.
+- Tono: directo, claro, cercano. Sin tecnicismos innecesarios. Sin exagerar.
+
+ESTRUCTURA OBLIGATORIA:
+- Párrafo 1: saluda al prospecto por su nombre, confirma que recibimos su consulta y reconoce brevemente su situación o tema de interés sin asumir nada que no se dijo.
+- Párrafo 2: explica qué puede revisar el despacho en un diagnóstico de pensión IMSS (semanas cotizadas, ley aplicable, AFORE, conservación de derechos, monto estimado). NO prometas resultados ni montos. NO uses ejemplos numéricos específicos.
+- Párrafo 3: invita a dar el siguiente paso con una frase clara y directa. Menciona que al agendar su cita, el prospecto será atendido personalmente por el Contador Gerardo Huerta. El enlace lleva a una página donde puede conocer en qué consiste el diagnóstico y cómo agendar su cita. Incluye el enlace: ${LANDING_URL}
+
+CIERRE FIJO (copia exacto):
+Atentamente,
+Equipo del Despacho Fiscal 2087
+Contador Gerardo Huerta
+
+PALABRAS Y FRASES PROHIBIDAS:
+- "casos de éxito"
+- "garantizamos" / "aseguramos" / "te garantizo"
+- "el mejor beneficio" / "máximo beneficio"
+- "transparencia y compromiso" / "con toda la transparencia"
+- "recálculo automático" o cualquier promesa de aumento sin revisión
+- "no te preocupes, nosotros te ayudamos con todo"
+- Superlativos vacíos: "el mejor", "el más completo", "único en México"
+- Signos de exclamación en exceso
+- "sin costo" / "gratis" / "gratuito" / "sin cargo" / "de forma gratuita" (el diagnóstico tiene costo, no ofrecer nada gratuito)
+
+PRINCIPIO RECTOR DE LA MARCA:
+Primero se revisa. Después se decide.
+No se promete lo que no se puede demostrar.
+Cada caso es diferente y debe analizarse de forma individual.
+
+NO hagas preguntas al final del correo.
+NO uses bullet points dentro del cuerpo del correo.
+NO repitas el tema de interés con tecnicismos si el prospecto dijo "no sé por dónde empezar".
+
+Responde ÚNICAMENTE con un JSON válido con este formato exacto (sin markdown, sin bloques de código):
+{"asunto":"...","cuerpo":"..."}
+
+El asunto debe ser máximo 60 caracteres, directo, menciona su tema de pensión, sin signos de exclamación.`;
+
+  const raw = await mistral([{ role: "user", content: prompt }], {
+    max_tokens: 800,
+    temperature: 0.7,
+    response_format: { type: "json_object" },
+  });
+
+  const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  const parsed = JSON.parse(clean) as { asunto?: string; cuerpo?: string };
+  return {
+    asunto: parsed.asunto ?? "",
+    cuerpo: parsed.cuerpo ?? "",
+  };
+}
+
+export async function generarMensajeWAConIA(lead: LeadParaMensaje): Promise<string> {
+  const yaEstaP =
+    lead.yaEstaPensionado === "si" ? "ya está pensionado" :
+    lead.yaEstaPensionado === "no" ? "aún no está pensionado" :
+    "no sabe si está pensionado";
+
+  const prompt = `Eres parte del equipo del Despacho Fiscal 2087, despacho especializado en pensiones IMSS dirigido por el Contador Gerardo Huerta, con sede en Ciudad Juárez, Chihuahua.
+
+Tu tarea es redactar el mensaje de WhatsApp de primer contacto con un prospecto que dejó sus datos.
+
+DATOS DEL PROSPECTO:
+- Nombre: ${lead.nombre.split(" ")[0]} (usa solo el primer nombre)
+- Tema de interés: ${lead.temaInteres}
+- Edad: ${lead.edad} años
+- Ciudad: ${lead.ciudad}
+- Situación de pensión: ${yaEstaP}
+- Lo que comentó: "${lead.situacion}"
+${lead.objetivoPrincipal ? `- Objetivo: ${lead.objetivoPrincipal}` : ""}
+
+REGLAS DE FORMATO:
+- Máximo 4 oraciones en total. Mensaje breve, no carta.
+- Escribe en nombre del despacho (nosotros), NO en nombre personal del contador.
+- Tono: directo, claro, cercano. Sin tecnicismos innecesarios. Sin exagerar.
+- NO uses emojis.
+
+ESTRUCTURA OBLIGATORIA:
+- Oración 1: saluda por nombre y confirma que recibimos su consulta reconociendo brevemente su tema, sin asumir nada que no se dijo.
+- Oración 2-3: menciona que en el despacho podemos hacer un diagnóstico de pensión IMSS para revisar su situación (semanas, ley aplicable, AFORE, derechos). NO prometas resultados ni montos.
+- Última oración: invita a agendar su cita para el diagnóstico, mencionando que será atendido personalmente por el Contador Gerardo Huerta. Termina EXACTAMENTE con: "Más información: ${LANDING_URL}"
+
+PALABRAS Y FRASES PROHIBIDAS:
+- "casos de éxito"
+- "garantizamos" / "aseguramos" / "te garantizo"
+- "el mejor beneficio" / "máximo beneficio"
+- "transparencia y compromiso"
+- "recálculo automático" o cualquier promesa de aumento sin revisión
+- "no te preocupes, nosotros te ayudamos con todo"
+- Superlativos vacíos: "el mejor", "el más completo", "único en México"
+- Signos de exclamación en exceso
+- "Quedamos atentos" / "Estamos a tus órdenes"
+- "sin costo" / "gratis" / "gratuito" / "sin cargo" / "de forma gratuita" (el diagnóstico tiene costo, no ofrecer nada gratuito)
+
+PRINCIPIO RECTOR DE LA MARCA:
+Primero se revisa. Después se decide.
+No se promete lo que no se puede demostrar.
+Cada caso es diferente y debe analizarse de forma individual.
+
+NO hagas preguntas al final.
+NO repitas el tema con tecnicismos si el prospecto dijo "no sé por dónde empezar".`;
+
+  return mistral([{ role: "user", content: prompt }], { max_tokens: 300, temperature: 0.7 });
+}
