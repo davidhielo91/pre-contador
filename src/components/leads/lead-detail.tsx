@@ -156,8 +156,14 @@ export function LeadDetail({ lead }: LeadDetailProps) {
     try {
       const res = await fetch(`/api/leads/${lead.id}/generar-resumen`, { method: "POST" });
       const data = await res.json();
-      if (data.resumen) setResumenIA(data.resumen);
-    } catch { /* fallo silencioso */ }
+      if (data.resumen) {
+        setResumenIA(data.resumen);
+      } else {
+        showError(data.error ?? "Error al generar el resumen. Intenta de nuevo.");
+      }
+    } catch {
+      showError("Error al generar el resumen. Intenta de nuevo.");
+    }
     setGenerandoResumenIA(false);
   }
 

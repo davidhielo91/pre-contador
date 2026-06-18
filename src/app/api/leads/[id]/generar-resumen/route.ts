@@ -42,7 +42,8 @@ export async function POST(
     const resumen = await generarResumenConIA(lead);
     await prisma.lead.update({ where: { id }, data: { resumenIA: resumen } });
     return NextResponse.json({ resumen });
-  } catch {
-    return NextResponse.json({ error: "Error al generar el resumen" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Error desconocido";
+    return NextResponse.json({ error: `Error al generar el resumen: ${msg}` }, { status: 500 });
   }
 }

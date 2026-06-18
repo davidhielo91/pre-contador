@@ -1,9 +1,7 @@
 "use client";
 
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { NotificationBell } from "./notification-bell";
 
 export function Header() {
@@ -29,15 +27,6 @@ export function Header() {
             {session?.user?.name?.charAt(0)?.toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <Button
-          variant="ghost"
-          size="sm"
-          title="Cerrar sesión"
-          onClick={() => signOut({ callbackUrl: "/login" })}
-          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/5"
-        >
-          <LogOut className="h-4 w-4" />
-        </Button>
       </div>
     </header>
   );
