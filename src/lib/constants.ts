@@ -120,3 +120,17 @@ export const ESTADO_COLORS: Record<string, string> = {
   "Contactado": "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800",
   "Archivado":  "text-slate-600 bg-slate-100 border-slate-200 dark:text-slate-400 dark:bg-slate-800/40 dark:border-slate-700",
 };
+
+export const SEGMENTOS_INTERES = ["A", "B", "C"] as const;
+
+export const SEGMENTO_INTERES_COLORS: Record<string, string> = {
+  "A": "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800",
+  "B": "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800",
+  "C": "text-slate-600 bg-slate-100 border-slate-200 dark:text-slate-400 dark:bg-slate-800/40 dark:border-slate-700",
+};
+
+export const SEGMENTO_INTERES_LABELS: Record<string, string> = {
+  "A": "Listo para comprar",
+  "B": "Interesado con dudas",
+  "C": "Curioso",
+};

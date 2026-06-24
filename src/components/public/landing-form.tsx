@@ -563,7 +563,19 @@ export function LandingForm() {
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </span>
-                Acepto ser contactado para recibir información relacionada con mi caso.
+                <span>
+                  He leído y acepto el{" "}
+                  <a
+                    href="/aviso-de-privacidad"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="privacy-link"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    aviso de privacidad
+                  </a>
+                  . Mis datos serán utilizados únicamente para contactarme respecto a mi consulta de pensión.
+                </span>
               </label>
               {errors.consentimiento && <p className="field-error" role="alert">{errors.consentimiento}</p>}
             </div>

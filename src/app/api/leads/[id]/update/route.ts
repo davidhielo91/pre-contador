@@ -11,6 +11,7 @@ const ALLOWED_FIELDS = [
   "userId",
   "notasInternas",
   "fechaProximaAccion",
+  "segmentoInteres",
 ];
 
 export async function PATCH(

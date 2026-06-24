@@ -19,6 +19,7 @@ interface PageProps {
     segmento?: string;
     sinContacto?: string;
     orden?: string;
+    segmentoInteres?: string;
   }>;
 }
 
@@ -40,6 +41,7 @@ async function getLeads(filters: Record<string, string | undefined>) {
   if (filters.categoria) where.categoria = filters.categoria;
   if (filters.prioridad) where.prioridad = filters.prioridad;
   if (filters.fuente) where.fuente = filters.fuente;
+  if (filters.segmentoInteres) where.segmentoInteres = filters.segmentoInteres;
 
   if (!esArchivados && filters.segmento) {
     const seg = filters.segmento;

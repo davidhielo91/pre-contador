@@ -46,6 +46,8 @@ import {
   PRIORIDADES,
   VIABILIDADES,
   ESTADO_COLORS,
+  SEGMENTOS_INTERES,
+  SEGMENTO_INTERES_COLORS,
 } from "@/lib/constants";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -76,6 +78,7 @@ interface LeadDetailProps {
     fechaProximaAccion: Date | null;
     vecesRecibido: number;
     resumenIA: string | null;
+    segmentoInteres?: string | null;
     createdAt: Date;
     asignadoA: { id: string; name: string } | null;
     activities: Array<{
@@ -136,6 +139,7 @@ export function LeadDetail({ lead }: LeadDetailProps) {
   const [nuevaCategoria, setNuevaCategoria] = useState(lead.categoria);
   const [nuevaPrioridad, setNuevaPrioridad] = useState(lead.prioridad);
   const [nuevaViabilidad, setNuevaViabilidad] = useState(lead.viabilidad);
+  const [nuevoSegmento, setNuevoSegmento] = useState(lead.segmentoInteres ?? "");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -552,6 +556,29 @@ export function LeadDetail({ lead }: LeadDetailProps) {
                 options={VIABILIDADES as unknown as string[]}
                 onChange={(v) => { setNuevaViabilidad(v); handleUpdateField("viabilidad", v); }}
               />
+              <div>
+                <p className="text-[11px] text-muted font-medium mb-1.5">Grupo de interés</p>
+                <Select
+                  value={nuevoSegmento || "sin_clasificar"}
+                  onValueChange={(v) => {
+                    const val = v === "sin_clasificar" ? "" : v;
+                    setNuevoSegmento(val);
+                    handleUpdateField("segmentoInteres", val);
+                  }}
+                >
+                  <SelectTrigger className="h-8 bg-background border-border text-sm">
+                    <SelectValue placeholder="Sin clasificar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sin_clasificar">Sin clasificar</SelectItem>
+                    {(SEGMENTOS_INTERES as unknown as string[]).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        Grupo {s} — {s === "A" ? "Listo para comprar" : s === "B" ? "Interesado con dudas" : "Curioso"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardContent>
           </Card>
 

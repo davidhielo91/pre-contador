@@ -298,6 +298,8 @@
 .checkbox-input { position: absolute; opacity: 0; width: 0; height: 0; }
 .checkbox-custom { flex-shrink: 0; width: 24px; height: 24px; border: 2px solid var(--border-mid); border-radius: 6px; background: var(--surface-light); display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: border-color 0.2s, background 0.2s; color: transparent; }
 .checkbox-input:checked + .checkbox-custom { background: var(--navy); border-color: var(--navy); color: white; }
+.privacy-link { color: var(--navy); text-decoration: underline; font-weight: 600; }
+.privacy-link:hover { opacity: 0.75; }
 
 .form-error-global { background: var(--error-bg); border: 1.5px solid var(--error-border); border-left: 4px solid var(--error); color: var(--error); padding: 1rem 1.25rem; border-radius: var(--radius-sm); font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem; }
 .form-disclaimer { font-size: 0.88rem; color: var(--text-muted); text-align: center; margin-top: 1.25rem; line-height: 1.6; }

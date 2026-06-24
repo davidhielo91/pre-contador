@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Bell, Inbox, Clock } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface LeadNuevo {
   id: string;
@@ -51,14 +52,31 @@ function labelSeguimiento(fecha: string): string {
 export function NotificationBell() {
   const [data, setData] = useState<NotificationsData | null>(null);
   const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
 
-  useEffect(() => {
+  const fetchNotifications = useCallback(() => {
     fetch("/api/notifications")
       .then((r) => r.json())
       .then(setData)
       .catch(() => {});
   }, []);
+
+  // Refresca el badge cada vez que cambia la ruta
+  useEffect(() => {
+    fetchNotifications();
+  }, [pathname, fetchNotifications]);
+
+  // Refresca la lista completa cada vez que se abre el dropdown
+  useEffect(() => {
+    if (open) fetchNotifications();
+  }, [open, fetchNotifications]);
+
+  function dismiss(id: string) {
+    setDismissed((prev) => new Set([...prev, id]));
+    setOpen(false);
+  }
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -70,7 +88,11 @@ export function NotificationBell() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const badge = data?.totalBadge ?? 0;
+  const leadsNuevosVisibles      = (data?.leadsNuevos ?? []).filter((l) => !dismissed.has(l.id));
+  const seguimientosVisibles     = (data?.seguimientosVencidos ?? []).filter((l) => !dismissed.has(l.id));
+  const dismissedEnNuevos        = (data?.leadsNuevos ?? []).filter((l) => dismissed.has(l.id)).length;
+  const dismissedEnSeguimientos  = (data?.seguimientosVencidos ?? []).filter((l) => dismissed.has(l.id)).length;
+  const badge = Math.max(0, (data?.totalBadge ?? 0) - dismissedEnNuevos - dismissedEnSeguimientos);
 
   return (
     <div ref={ref} className="relative">
@@ -100,19 +122,19 @@ export function NotificationBell() {
           </div>
 
           {/* Leads nuevos sin contactar */}
-          {data && data.leadsNuevos.length > 0 && (
+          {data && leadsNuevosVisibles.length > 0 && (
             <div>
               <div className="flex items-center gap-1.5 px-4 pt-3 pb-1.5">
                 <Inbox className="h-3 w-3 text-blue-500" />
                 <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
-                  {data.totalNuevos} leads sin contactar
+                  {data.totalNuevos - dismissedEnNuevos} leads sin contactar
                 </span>
               </div>
-              {data.leadsNuevos.map((l) => (
+              {leadsNuevosVisibles.map((l) => (
                 <Link
                   key={l.id}
                   href={`/leads/${l.id}`}
-                  onClick={() => setOpen(false)}
+                  onClick={() => dismiss(l.id)}
                   className="flex items-start justify-between gap-2 px-4 py-2 hover:bg-accent/5 transition-colors group"
                 >
                   <div className="min-w-0">
@@ -126,32 +148,32 @@ export function NotificationBell() {
                   </span>
                 </Link>
               ))}
-              {data.totalNuevos > 5 && (
+              {data.totalNuevos - dismissedEnNuevos > 5 && (
                 <Link
                   href="/leads"
                   onClick={() => setOpen(false)}
                   className="block px-4 py-1.5 text-xs text-primary hover:underline"
                 >
-                  +{data.totalNuevos - 5} más →
+                  +{data.totalNuevos - dismissedEnNuevos - 5} más →
                 </Link>
               )}
             </div>
           )}
 
           {/* Seguimientos vencidos */}
-          {data && data.seguimientosVencidos.length > 0 && (
-            <div className={data.leadsNuevos.length > 0 ? "border-t border-border" : ""}>
+          {data && seguimientosVisibles.length > 0 && (
+            <div className={leadsNuevosVisibles.length > 0 ? "border-t border-border" : ""}>
               <div className="flex items-center gap-1.5 px-4 pt-3 pb-1.5">
                 <Clock className="h-3 w-3 text-amber-500" />
                 <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
-                  {data.totalSeguimientos} seguimientos vencidos
+                  {data.totalSeguimientos - dismissedEnSeguimientos} seguimientos vencidos
                 </span>
               </div>
-              {data.seguimientosVencidos.map((l) => (
+              {seguimientosVisibles.map((l) => (
                 <Link
                   key={l.id}
                   href={`/leads/${l.id}`}
-                  onClick={() => setOpen(false)}
+                  onClick={() => dismiss(l.id)}
                   className="flex items-start justify-between gap-2 px-4 py-2 hover:bg-accent/5 transition-colors group"
                 >
                   <p className="text-sm font-medium text-card-foreground truncate group-hover:text-primary transition-colors">
@@ -162,20 +184,20 @@ export function NotificationBell() {
                   </span>
                 </Link>
               ))}
-              {data.totalSeguimientos > 5 && (
+              {data.totalSeguimientos - dismissedEnSeguimientos > 5 && (
                 <Link
                   href="/leads"
                   onClick={() => setOpen(false)}
                   className="block px-4 py-1.5 text-xs text-primary hover:underline"
                 >
-                  +{data.totalSeguimientos - 5} más →
+                  +{data.totalSeguimientos - dismissedEnSeguimientos - 5} más →
                 </Link>
               )}
             </div>
           )}
 
           {/* Estado vacío */}
-          {data && badge === 0 && (
+          {data && leadsNuevosVisibles.length === 0 && seguimientosVisibles.length === 0 && (
             <p className="px-4 py-8 text-center text-sm text-muted">
               No hay notificaciones pendientes
             </p>

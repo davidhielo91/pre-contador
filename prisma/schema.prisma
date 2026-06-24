@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -50,6 +50,7 @@ model Lead {
    etiquetaViabilidad  String?
    vecesRecibido       Int      @default(1)
    resumenIA           String?
+   segmentoInteres     String?
    createdAt           DateTime @default(now())
    updatedAt           DateTime @updatedAt
 

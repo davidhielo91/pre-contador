@@ -36,6 +36,29 @@ async function mistral(messages: MistralMessage[], options: MistralOptions = {})
   return data.choices[0]?.message?.content?.trim() ?? "";
 }
 
+const FRASES_PROHIBIDAS_MARCA = [
+  "garantiz",
+  "le va a subir",
+  "le subirá",
+  "recálculo automático",
+  "aumento asegurado",
+  "pensión va a subir",
+  "pensión aumentará",
+  "le subiremos",
+  "va a aumentar",
+];
+
+function violaReglasVoz(texto: string): boolean {
+  const lower = texto.toLowerCase();
+  return FRASES_PROHIBIDAS_MARCA.some((f) => lower.includes(f));
+}
+
+const ADVERTENCIA_REINTENTO = `ADVERTENCIA CRÍTICA: El texto anterior contiene frases prohibidas.
+Reescribe el mensaje desde cero.
+NUNCA digas que la pensión va a subir, va a aumentar o que hay un recálculo automático.
+NUNCA garantices montos ni resultados. Cada caso es individual y solo se determina tras la revisión.
+Sigue todas las reglas anteriores al pie de la letra.`;
+
 export interface LeadParaMensaje {
   nombre: string;
   edad: number;
@@ -116,14 +139,18 @@ Contador Gerardo Huerta
 
 PALABRAS Y FRASES PROHIBIDAS:
 - "casos de éxito"
-- "garantizamos" / "aseguramos" / "te garantizo"
+- "garantizamos" / "aseguramos" / "te garantizo" / "aumento asegurado"
 - "el mejor beneficio" / "máximo beneficio"
 - "transparencia y compromiso" / "con toda la transparencia"
-- "recálculo automático" o cualquier promesa de aumento sin revisión
+- "recálculo automático" / "le va a subir" / "le subirá" / "va a aumentar" / "su pensión va a subir" / "su pensión aumentará" — NUNCA prometas que la pensión va a aumentar ni garantices montos
 - "no te preocupes, nosotros te ayudamos con todo"
 - Superlativos vacíos: "el mejor", "el más completo", "único en México"
 - Signos de exclamación en exceso
 - "sin costo" / "gratis" / "gratuito" / "sin cargo" / "de forma gratuita" (el diagnóstico tiene costo, no ofrecer nada gratuito)
+
+TRATO Y TONO:
+- Usa siempre "usted" para dirigirte al prospecto. Nunca uses "tú", "te", "tu" ni "tus" en segunda persona.
+${(lead.temaInteres?.toLowerCase().includes("viudez") || lead.categoria?.toLowerCase().includes("viudez")) ? "- NOTA VIUDEZ: La pensión por viudez es una pensión derivada; en la mayoría de los casos no aplica el mismo tipo de revisión de monto. Sé honesto, no generes expectativas de aumento para este caso." : ""}
 
 PRINCIPIO RECTOR DE LA MARCA:
 Primero se revisa. Después se decide.
@@ -139,18 +166,42 @@ Responde ÚNICAMENTE con un JSON válido con este formato exacto (sin markdown, 
 
 El asunto debe ser máximo 60 caracteres, directo, menciona su tema de pensión, sin signos de exclamación.`;
 
-  const raw = await mistral([{ role: "user", content: prompt }], {
-    max_tokens: 800,
-    temperature: 0.7,
-    response_format: { type: "json_object" },
-  });
-
-  const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  const parsed = JSON.parse(clean) as { asunto?: string; cuerpo?: string };
-  return {
-    asunto: parsed.asunto ?? "",
-    cuerpo: parsed.cuerpo ?? "",
+  const fallbackCorreo = {
+    asunto: `Su consulta de pensión IMSS — Despacho Fiscal 2087`,
+    cuerpo: `Hola, ${lead.nombre.split(" ")[0]}.\n\nRecibimos su consulta sobre pensión IMSS. En el Despacho Fiscal 2087 podemos hacer una revisión detallada de su situación para que usted cuente con información clara antes de tomar cualquier decisión.\n\nPara conocer en qué consiste el Diagnóstico de Pensión IMSS y agendar su cita con el Contador Gerardo Huerta, aquí tiene más información: ${LANDING_URL}\n\nAtentamente,\nEquipo del Despacho Fiscal 2087\nContador Gerardo Huerta`,
   };
+
+  async function llamarCorreo(msgs: MistralMessage[]): Promise<{ asunto: string; cuerpo: string }> {
+    const raw = await mistral(msgs, {
+      max_tokens: 800,
+      temperature: 0.7,
+      response_format: { type: "json_object" },
+    });
+    const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    const parsed = JSON.parse(clean) as { asunto?: string; cuerpo?: string };
+    return { asunto: parsed.asunto ?? "", cuerpo: parsed.cuerpo ?? "" };
+  }
+
+  const msgs: MistralMessage[] = [{ role: "user", content: prompt }];
+  let resultado = await llamarCorreo(msgs);
+
+  if (violaReglasVoz(resultado.asunto + " " + resultado.cuerpo)) {
+    const msgsRetry: MistralMessage[] = [
+      ...msgs,
+      { role: "assistant", content: JSON.stringify(resultado) },
+      { role: "user", content: ADVERTENCIA_REINTENTO },
+    ];
+    try {
+      resultado = await llamarCorreo(msgsRetry);
+    } catch {
+      return fallbackCorreo;
+    }
+    if (violaReglasVoz(resultado.asunto + " " + resultado.cuerpo)) {
+      return fallbackCorreo;
+    }
+  }
+
+  return resultado;
 }
 
 export async function generarMensajeWAConIA(lead: LeadParaMensaje): Promise<string> {
@@ -185,15 +236,19 @@ ESTRUCTURA OBLIGATORIA:
 
 PALABRAS Y FRASES PROHIBIDAS:
 - "casos de éxito"
-- "garantizamos" / "aseguramos" / "te garantizo"
+- "garantizamos" / "aseguramos" / "te garantizo" / "aumento asegurado"
 - "el mejor beneficio" / "máximo beneficio"
 - "transparencia y compromiso"
-- "recálculo automático" o cualquier promesa de aumento sin revisión
+- "recálculo automático" / "le va a subir" / "le subirá" / "va a aumentar" / "su pensión va a subir" / "su pensión aumentará" — NUNCA prometas que la pensión va a aumentar ni garantices montos
 - "no te preocupes, nosotros te ayudamos con todo"
 - Superlativos vacíos: "el mejor", "el más completo", "único en México"
 - Signos de exclamación en exceso
 - "Quedamos atentos" / "Estamos a tus órdenes"
 - "sin costo" / "gratis" / "gratuito" / "sin cargo" / "de forma gratuita" (el diagnóstico tiene costo, no ofrecer nada gratuito)
+
+TRATO Y TONO:
+- Usa siempre "usted" para dirigirte al prospecto. Nunca uses "tú", "te", "tu" ni "tus" en segunda persona.
+${(lead.temaInteres?.toLowerCase().includes("viudez") || lead.categoria?.toLowerCase().includes("viudez")) ? "- NOTA VIUDEZ: La pensión por viudez es una pensión derivada; en la mayoría de los casos no aplica el mismo tipo de revisión de monto. Sé honesto, no generes expectativas de aumento para este caso." : ""}
 
 PRINCIPIO RECTOR DE LA MARCA:
 Primero se revisa. Después se decide.
@@ -203,5 +258,26 @@ Cada caso es diferente y debe analizarse de forma individual.
 NO hagas preguntas al final.
 NO repitas el tema con tecnicismos si el prospecto dijo "no sé por dónde empezar".`;
 
-  return mistral([{ role: "user", content: prompt }], { max_tokens: 300, temperature: 0.7 });
+  const fallbackWA = `Hola, ${lead.nombre.split(" ")[0]}. Le contactamos del Despacho Fiscal 2087. Revisamos la información que nos compartió sobre su caso de pensión IMSS y podemos hacer una revisión detallada de su situación. Para conocer en qué consiste el Diagnóstico de Pensión IMSS y agendar su cita con el Contador Gerardo Huerta, más información aquí: ${LANDING_URL}`;
+
+  const msgsWA: MistralMessage[] = [{ role: "user", content: prompt }];
+  let mensajeWA = await mistral(msgsWA, { max_tokens: 300, temperature: 0.7 });
+
+  if (violaReglasVoz(mensajeWA)) {
+    const msgsRetryWA: MistralMessage[] = [
+      ...msgsWA,
+      { role: "assistant", content: mensajeWA },
+      { role: "user", content: ADVERTENCIA_REINTENTO },
+    ];
+    try {
+      mensajeWA = await mistral(msgsRetryWA, { max_tokens: 300, temperature: 0.3 });
+    } catch {
+      return fallbackWA;
+    }
+    if (violaReglasVoz(mensajeWA)) {
+      return fallbackWA;
+    }
+  }
+
+  return mensajeWA;
 }

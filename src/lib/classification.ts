@@ -117,6 +117,37 @@ export function clasificarLead(input: LeadInput): ClassificationResult {
   };
 }
 
+const OBJETIVOS_ESPECIFICOS_A = [
+  "Saber cuánto podría recibir",
+  "Revisar una pensión baja",
+  "Modalidad 40",
+  "Modalidad 10",
+];
+
+export function clasificarSegmentoInteres(input: LeadInput): string {
+  const objetivo = input.objetivoPrincipal ?? "";
+  const situacion = input.situacion ?? "";
+
+  const objetivoEspecifico = OBJETIVOS_ESPECIFICOS_A.includes(objetivo);
+  const tieneSemanas = input.tieneSemanasCotizadas === "si";
+  const situacionDetallada = situacion.length >= 40;
+  const objetivoVago = !objetivo || objetivo === "No estoy seguro";
+  const situacionCorta = situacion.length < 20;
+
+  // A: objetivo claro Y (tiene semanas cotizadas O describió bien su caso)
+  if (objetivoEspecifico && (tieneSemanas || situacionDetallada)) {
+    return "A";
+  }
+
+  // C: sin objetivo claro O descripción mínima
+  if (objetivoVago || situacionCorta) {
+    return "C";
+  }
+
+  // B: interesado pero con dudas
+  return "B";
+}
+
 const PALABRAS_CLAVE_MONTO = /\b(pensi[óo]n|cheque|actual|me llega|recibo|pagan|paga)\b/;
 const RE_SEMANAS = /\bsemanas?\b/;
 
@@ -304,6 +335,7 @@ export async function crearLeadConClasificacion(
 
   const clasificacion = clasificarLead(input);
   const scoreResult = calcularScoreViabilidad(input, clasificacion.categoria);
+  const segmentoInteres = clasificarSegmentoInteres(input);
   const correoNorm = input.correo?.toLowerCase().trim() ?? null;
   const asignadoA = await asignarLeadAlAdmin();
 
@@ -329,6 +361,7 @@ export async function crearLeadConClasificacion(
       vecesRecibido: 1,
       scoreViabilidad: scoreResult.score,
       etiquetaViabilidad: scoreResult.etiqueta,
+      segmentoInteres,
       userId: asignadoA,
       ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     },
@@ -350,7 +383,7 @@ export async function crearLeadConClasificacion(
     data: {
       leadId: lead.id,
       tipo: "clasificacion_automatica",
-      nota: `Clasificado como: ${clasificacion.categoria} | Prioridad: ${clasificacion.prioridad} | Viabilidad: ${clasificacion.viabilidad} | Score: ${scoreResult.score} (${scoreResult.etiqueta})`,
+      nota: `Clasificado como: ${clasificacion.categoria} | Prioridad: ${clasificacion.prioridad} | Viabilidad: ${clasificacion.viabilidad} | Score: ${scoreResult.score} (${scoreResult.etiqueta}) | Grupo: ${segmentoInteres}`,
     },
   });
 

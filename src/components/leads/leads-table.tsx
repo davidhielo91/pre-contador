@@ -27,6 +27,8 @@ import {
   ESTADO_COLORS,
   SCORE_COLORS,
   SEGMENTOS,
+  SEGMENTOS_INTERES,
+  SEGMENTO_INTERES_COLORS,
 } from "@/lib/constants";
 import { format, differenceInHours } from "date-fns";
 import { es } from "date-fns/locale";
@@ -46,6 +48,7 @@ interface LeadWithUser {
   etiquetaViabilidad: string | null;
   fechaUltimoContacto: Date | null;
   vecesRecibido: number;
+  segmentoInteres?: string | null;
 }
 
 const FILTER_LABELS: Record<string, string> = {
@@ -55,6 +58,7 @@ const FILTER_LABELS: Record<string, string> = {
   fuente: "Fuente",
   segmento: "Segmento",
   sinContacto: "Sin contacto",
+  segmentoInteres: "Grupo",
 };
 
 const OPCIONES_SIN_CONTACTO = [
@@ -121,7 +125,7 @@ export function LeadsTable({
 
   const FILTER_KEYS = esArchivados
     ? ["categoria", "prioridad", "fuente", "busqueda"]
-    : ["categoria", "prioridad", "fuente", "busqueda", "segmento", "sinContacto"];
+    : ["categoria", "prioridad", "fuente", "busqueda", "segmento", "segmentoInteres", "sinContacto"];
   const activeFilters = FILTER_KEYS
     .filter((k) => searchParams.get(k))
     .map((k) => ({ key: k, value: searchParams.get(k)! }));
@@ -297,20 +301,32 @@ export function LeadsTable({
                         </span>
                       </TableCell>
 
-                      {/* Score */}
+                      {/* Score + Grupo */}
                       <TableCell className="hidden sm:table-cell">
-                        {lead.scoreViabilidad !== null ? (
-                          <Badge
-                            variant="outline"
-                            className={`text-[11px] px-2 py-0.5 font-semibold whitespace-nowrap ${
-                              SCORE_COLORS[lead.etiquetaViabilidad ?? ""] || ""
-                            }`}
-                          >
-                            {lead.scoreViabilidad}
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted/40">—</span>
-                        )}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {lead.scoreViabilidad !== null ? (
+                            <Badge
+                              variant="outline"
+                              className={`text-[11px] px-2 py-0.5 font-semibold whitespace-nowrap ${
+                                SCORE_COLORS[lead.etiquetaViabilidad ?? ""] || ""
+                              }`}
+                            >
+                              {lead.scoreViabilidad}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted/40">—</span>
+                          )}
+                          {lead.segmentoInteres && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 font-bold whitespace-nowrap ${
+                                SEGMENTO_INTERES_COLORS[lead.segmentoInteres] || ""
+                              }`}
+                            >
+                              {lead.segmentoInteres}
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
 
                       {/* Prioridad */}
@@ -493,6 +509,14 @@ function FilterBar({
         placeholder="Segmento"
         paramKey="segmento"
         options={SEGMENTOS as unknown as string[]}
+        searchParams={searchParams}
+        onFilterChange={onFilterChange}
+      />
+      <FilterSelect
+        placeholder="Grupo"
+        paramKey="segmentoInteres"
+        options={SEGMENTOS_INTERES as unknown as string[]}
+        optionLabels={SEGMENTOS_INTERES.map((s) => `Grupo ${s}`)}
         searchParams={searchParams}
         onFilterChange={onFilterChange}
       />
