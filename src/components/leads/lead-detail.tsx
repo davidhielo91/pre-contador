@@ -22,8 +22,6 @@ import {
   Trash2,
   Bell,
   BellOff,
-  Copy,
-  Check,
   Sparkles,
   Loader2,
 } from "lucide-react";
@@ -51,7 +49,7 @@ import {
 } from "@/lib/constants";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { generarMensajeWAContextual, generarCorreo } from "@/lib/classification";
+import { generarCorreo } from "@/lib/classification";
 
 interface LeadDetailProps {
   lead: {
@@ -147,9 +145,6 @@ export function LeadDetail({ lead }: LeadDetailProps) {
   const [proximaAccion, setProximaAccion] = useState<Date | null>(
     lead.fechaProximaAccion ? new Date(lead.fechaProximaAccion) : null
   );
-  const [mensajeCopiado, setMensajeCopiado]         = useState(false);
-  const [mensajeIA, setMensajeIA]                   = useState<string | null>(null);
-  const [generandoIA, setGenerandoIA]               = useState(false);
   const [correoIA, setCorreoIA]                     = useState<{ asunto: string; cuerpo: string } | null>(null);
   const [generandoCorreoIA, setGenerandoCorreoIA]   = useState(false);
   const [resumenIA, setResumenIA]                   = useState<string | null>(lead.resumenIA);
@@ -169,16 +164,6 @@ export function LeadDetail({ lead }: LeadDetailProps) {
       showError("Error al generar el resumen. Intenta de nuevo.");
     }
     setGenerandoResumenIA(false);
-  }
-
-  async function generarConIA() {
-    setGenerandoIA(true);
-    try {
-      const res = await fetch(`/api/leads/${lead.id}/generar-mensaje`, { method: "POST" });
-      const data = await res.json();
-      if (data.mensaje) setMensajeIA(data.mensaje);
-    } catch { /* fallo silencioso */ }
-    setGenerandoIA(false);
   }
 
   async function generarCorreoIA() {
@@ -278,11 +263,7 @@ export function LeadDetail({ lead }: LeadDetailProps) {
     await handleUpdateField("fechaProximaAccion", fecha ? fecha.toISOString() : "");
   }
 
-  const whatsappMsgBase = generarMensajeWAContextual(lead.nombre, lead.temaInteres, lead.edad, lead.prioridad);
-  const mensajeActivo   = mensajeIA ?? whatsappMsgBase;
   const correo = generarCorreo(lead.nombre, lead.prioridad);
-  const tel10 = lead.telefonoNormalizado || lead.telefono.replace(/\D/g, "");
-  const whatsappUrl = `https://wa.me/52${tel10}?text=${encodeURIComponent(mensajeActivo)}`;
 
   return (
     <div className="space-y-5 max-w-5xl pb-8">
@@ -588,71 +569,6 @@ export function LeadDetail({ lead }: LeadDetailProps) {
               <p className="text-[10px] text-muted uppercase tracking-wider font-semibold px-0.5">
                 Contactar
               </p>
-
-              {/* ── WhatsApp ── */}
-              <div className="space-y-1.5">
-                <p className="text-[10px] text-muted uppercase tracking-wider px-0.5">WhatsApp</p>
-                <div className="flex gap-1.5">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 justify-start gap-2 h-8 text-sm text-green-700 border-green-200 bg-green-50 hover:bg-green-100 hover:text-green-800 dark:text-green-400 dark:border-green-900 dark:bg-green-950/30"
-                    onClick={() => { window.open(whatsappUrl, "_blank", "noopener,noreferrer"); handleQuickAction("whatsapp_enviado"); }}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                    Abrir WhatsApp
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0 shrink-0 text-green-700 border-green-200 bg-green-50 hover:bg-green-100 dark:text-green-400 dark:border-green-900 dark:bg-green-950/30"
-                    title="Copiar mensaje"
-                    onClick={async () => {
-                      await navigator.clipboard.writeText(mensajeActivo);
-                      setMensajeCopiado(true);
-                      setTimeout(() => setMensajeCopiado(false), 2000);
-                    }}
-                  >
-                    {mensajeCopiado ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </Button>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-start gap-2 h-8 text-sm text-violet-700 border-violet-200 bg-violet-50 hover:bg-violet-100 dark:text-violet-400 dark:border-violet-900 dark:bg-violet-950/30 disabled:opacity-60"
-                  onClick={generarConIA}
-                  disabled={generandoIA}
-                >
-                  {generandoIA ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {generandoIA ? "Generando…" : mensajeIA ? "Regenerar mensaje con IA" : "Generar mensaje con IA"}
-                </Button>
-                {mensajeIA && (
-                  <div className="rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-800 dark:bg-violet-950/20 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wider flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" /> Editar antes de enviar
-                      </p>
-                      <button
-                        onClick={generarConIA}
-                        disabled={generandoIA}
-                        className="flex items-center gap-1 text-[10px] text-violet-500 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-200 disabled:opacity-40 transition-colors"
-                        title="Generar otra versión"
-                      >
-                        {generandoIA ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                        Regenerar
-                      </button>
-                    </div>
-                    <textarea
-                      className="w-full text-xs text-card-foreground bg-white dark:bg-card border border-border rounded px-2 py-1.5 resize-none outline-none focus:ring-1 focus:ring-violet-300 leading-relaxed"
-                      rows={6}
-                      value={mensajeIA}
-                      onChange={(e) => setMensajeIA(e.target.value)}
-                    />
-                  </div>
-                )}
-              </div>
-
-              <Separator />
 
               {/* ── Correo ── */}
               <div className="space-y-1.5">
