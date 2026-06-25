@@ -1,14 +1,16 @@
 # Gestor de Leads — Pre-Diagnóstico IMSS
 
-Sistema integral para el **Despacho Fiscal 2087 (Contador Gerardo Huerta)**: landing pública de captación de leads + CRM interno para gestión y seguimiento de prospectos de pensión IMSS.
+Sistema integral para el **Despacho Fiscal 2087 (Contador Gerardo Huerta)**: landing pública de captación de prospectos de pensión IMSS + CRM interno para clasificación, seguimiento y contacto.
 
 ## Qué hace
 
-- **Landing pública** (`/`) — formulario de 2 pasos que capta el caso del prospecto y lo envía al CRM
-- **Página de gracias** (`/gracias`) — confirmación post-envío (no indexada por robots)
-- **CRM interno** (`/dashboard`, `/leads`, `/pipeline`, `/settings`) — asesores gestionan, clasifican y dan seguimiento
-- **Detección de duplicados** — si el mismo teléfono o correo vuelve a enviar, actualiza el lead existente e incrementa `vecesRecibido`
-- **Clasificación automática** — al llegar un lead se asigna categoría, prioridad y viabilidad por reglas en `src/lib/classification.ts`
+- **Landing pública** (`/`) — formulario de 2 pasos con consentimiento LFPDPPP; capta nombre, teléfono, correo, situación y tema de interés
+- **CRM interno** (`/dashboard`, `/leads`, `/leads/[id]`, `/settings`) — un solo administrador gestiona, clasifica y da seguimiento a los leads
+- **Clasificación automática** — al llegar un lead se asigna categoría, prioridad, viabilidad (score 0–100) y segmento de interés A/B/C
+- **Detección de duplicados** — mismo teléfono o correo incrementa `vecesRecibido` sin crear registro nuevo
+- **Generación de mensajes con IA** — WhatsApp y correo generados por Mistral AI con validación de voz de marca y fallback automático
+- **Notificaciones push** — browser push al llegar un lead nuevo; campana en el CRM con leads sin contactar y seguimientos vencidos
+- **Aviso de privacidad** (`/aviso-de-privacidad`) — página LFPDPPP con responsable, datos recabados, derechos ARCO e información del INAI
 
 ## Stack
 
@@ -17,28 +19,39 @@ Sistema integral para el **Despacho Fiscal 2087 (Contador Gerardo Huerta)**: lan
 | Framework | Next.js 16.2.9 (App Router) |
 | UI | React 19 + Tailwind CSS v4 + shadcn/ui (Radix UI) |
 | Base de datos | SQLite (desarrollo) / PostgreSQL (producción) vía Prisma 5 |
-| Auth | Auth.js v5 (NextAuth beta) — Credentials + JWT 8h |
-| Middleware | `src/middleware.ts` — protege rutas del CRM, permite landing sin auth |
+| Auth | Auth.js v5 — Credentials + JWT 8h |
+| Proxy/Middleware | `src/proxy.ts` — protege rutas del CRM |
+| IA | Mistral AI (`mistral-small-latest`) vía `fetch` nativo |
+| Email | Resend |
+| Push | Web Push API + `web-push` npm |
 | Fuentes (landing) | Google Fonts vía `next/font` — Roboto + Open Sans |
 
 ## Estructura de rutas
 
 ```
-/                      → Landing pública (formulario de pre-diagnóstico)
-/gracias               → Confirmación post-envío (no indexada)
-/login                 → Login de asesores
-/dashboard             → KPIs y últimos leads
-/leads                 → Tabla filtrable, paginación 30/página
-/leads/[id]            → Detalle: historial, notas, acciones rápidas
-/pipeline              → Tablero kanban por etapa
-/settings              → Gestión de usuarios
-/admin                 → Redirige a /dashboard
-/api/public/leads      → POST — recibe formularios (rate limit 5/min por IP)
-/api/leads/[id]/update → PATCH — actualiza campos de un lead
-/api/leads/[id]/action → POST — registra acción (whatsapp, correo, etc.)
-/api/leads/[id]/notes  → POST — agrega nota interna
-/robots.txt            → Generado por src/app/robots.ts
-/sitemap.xml           → Generado por src/app/sitemap.ts
+/                          → Landing pública (formulario de pre-diagnóstico)
+/gracias                   → Confirmación post-envío (no indexada)
+/aviso-de-privacidad       → Aviso de privacidad LFPDPPP
+/login                     → Login del administrador
+/dashboard                 → KPIs, cola de prioridad, seguimientos vencidos
+/leads                     → Tabla filtrable (Activos / Archivados)
+/leads/[id]                → Detalle: clasificación, acciones, IA, notas, historial
+/settings                  → Info del sistema (URL landing, rate limit, versión)
+/admin                     → Redirige a /dashboard
+/pipeline                  → Redirige a /leads
+
+/api/public/leads          → POST — recibe formularios (rate limit 5/min por IP)
+/api/leads/[id]            → DELETE — elimina lead con cascada
+/api/leads/[id]/update     → PATCH — actualiza un campo a la vez (allowlist)
+/api/leads/[id]/action     → POST — whatsapp_enviado / correo_enviado / archivado
+/api/leads/[id]/notes      → POST — agrega nota interna
+/api/leads/[id]/generar-mensaje  → POST — genera mensaje WhatsApp con IA
+/api/leads/[id]/generar-correo   → POST — genera correo con IA
+/api/leads/[id]/generar-resumen  → POST — genera resumen de caso (una sola vez)
+/api/leads/export          → GET — descarga leads filtrados como .xlsx
+/api/leads/import          → POST — importa .xlsx/.xls/.csv (hasta 1,000 filas)
+/api/notifications         → GET — badge y listas para la campana
+/api/push/subscribe        → POST/DELETE — suscripciones Web Push
 ```
 
 ---
@@ -55,43 +68,58 @@ Sistema integral para el **Despacho Fiscal 2087 (Contador Gerardo Huerta)**: lan
 ```bash
 # 1. Clonar repositorio
 git clone https://github.com/davidhielo91/pre-contador
-cd gestor-leads-prediagnostico
+cd pre-contador
 
 # 2. Instalar dependencias
 npm install
 
-# 3. Configurar variables de entorno para desarrollo local
-cp .env.example .env.local
-# Editar .env.local — para dev local usa SQLite:
-# DATABASE_URL="file:./prisma/dev.db"
+# 3. Crear .env (Prisma lo lee; Next.js lee .env y .env.local)
+```
 
-# 4. Activar schema SQLite para desarrollo
+Contenido mínimo de `.env`:
+
+```env
+DATABASE_URL="file:./dev.db"
+AUTH_SECRET="cualquier-string"
+AUTH_URL="http://localhost:3000"
+ADMIN_EMAIL="admin@despacho.com"
+ADMIN_PASSWORD="admin123"
+```
+
+```bash
+# 4. Activar schema SQLite y crear la base de datos
 npm run db:use:sqlite
-
-# 5. Crear base de datos y aplicar esquema
 npm run db:push
 
-# 6. Crear usuario admin y datos de ejemplo
+# 5. Crear usuario admin
 npm run db:seed
 
-# 7. Iniciar servidor de desarrollo
+# 6. Iniciar servidor de desarrollo
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000).
+Abre [http://localhost:3000](http://localhost:3000). Login con las credenciales de `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+
+> **Importante:** usa `file:./dev.db` (no `file:./prisma/dev.db`). Prisma CLI resuelve rutas relativas desde el directorio del schema (`prisma/`), por lo que `./dev.db` produce `prisma/dev.db`, que es la misma ruta que resuelve Next.js desde la raíz del proyecto.
 
 ### Variables de entorno
 
-| Variable | Descripción | Desarrollo | Producción |
-|---|---|---|---|
-| `DATABASE_URL` | Conexión a la BD | `file:./prisma/dev.db` | `postgresql://user:pass@host:5432/db` |
-| `AUTH_SECRET` | Secreto JWT (`openssl rand -base64 32`) | cualquier string | requerido |
-| `AUTH_URL` | URL pública de la app | `http://localhost:3000` | `https://tu-dominio.com` |
-| `AUTH_TRUST_HOST` | Confianza en reverse proxy | no necesario | `true` |
-| `ADMIN_EMAIL` | Email del admin inicial (seed) | `admin@despacho.com` | requerido |
-| `ADMIN_PASSWORD` | Contraseña del admin inicial (seed) | `admin123` | requerido |
-
-> **Nota Auth.js v5:** usa `AUTH_SECRET` y `AUTH_URL`, no `NEXTAUTH_SECRET` / `NEXTAUTH_URL`.
+| Variable | Dev local | Producción |
+|---|---|---|
+| `DATABASE_URL` | `file:./dev.db` | PostgreSQL connection string |
+| `AUTH_SECRET` | cualquier string | requerido (`openssl rand -base64 32`) |
+| `AUTH_URL` | `http://localhost:3000` | URL pública de la app |
+| `AUTH_TRUST_HOST` | — | `true` (detrás de reverse proxy) |
+| `ADMIN_EMAIL` | `admin@despacho.com` | requerido |
+| `ADMIN_PASSWORD` | `admin123` | requerido |
+| `NEXT_PUBLIC_BASE_URL` | — | URL pública de la app |
+| `RESEND_API_KEY` | — | Transactional email vía Resend |
+| `RESEND_FROM_EMAIL` | — | Dirección verificada en Resend |
+| `NOTIFICATION_EMAIL` | — | Recibe alertas de nuevos leads (default: `ADMIN_EMAIL`) |
+| `MISTRAL_API_KEY` | — | Generación de mensajes WA/correo con IA |
+| `VAPID_PUBLIC_KEY` | — | Web Push (generar con `npx web-push generate-vapid-keys`) |
+| `VAPID_PRIVATE_KEY` | — | Web Push |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | — | Mismo valor que `VAPID_PUBLIC_KEY` (expuesto al browser) |
 
 ### Scripts disponibles
 
@@ -99,115 +127,56 @@ Abre [http://localhost:3000](http://localhost:3000).
 |---|---|
 | `npm run dev` | Servidor de desarrollo |
 | `npm run build` | Build de producción |
-| `npm run db:push` | Aplica el schema a la BD sin historial |
-| `npm run db:migrate` | Crea y aplica migración con historial |
-| `npm run db:seed` | Crea admin y datos de ejemplo |
-| `npm run db:studio` | Abre Prisma Studio (GUI de la BD) |
+| `npm run lint` | ESLint |
 | `npm run db:use:sqlite` | Activa schema SQLite para desarrollo local |
 | `npm run db:use:postgres` | Restaura schema PostgreSQL para producción |
+| `npm run db:push` | Aplica el schema a la BD sin historial de migraciones |
+| `npm run db:migrate` | Crea y aplica migración con historial |
+| `npm run db:seed` | Crea/sincroniza admin y reasigna leads sin usuario |
+| `npm run db:studio` | Abre Prisma Studio (GUI de la BD) |
 
 ---
 
 ## Despliegue en producción — EasyPanel
 
-### Via ZIP (recomendado)
-
-1. Generar el ZIP desde el repositorio:
-   ```bash
-   git archive HEAD --format=zip -o deploy-easypanel.zip
-   ```
-2. En EasyPanel → **New Service → App → Upload ZIP**
-3. Configurar las variables de entorno (ver tabla abajo)
-4. Deploy
-
 ### Via GitHub
 
 1. Conectar el repositorio en EasyPanel → **New Service → App → GitHub**
 2. EasyPanel detecta el `Dockerfile` automáticamente
-3. Configurar variables de entorno
+3. Configurar variables de entorno (todas las de la tabla anterior)
 4. Deploy
 
-### Variables de entorno en EasyPanel
+### Via ZIP
+
+```bash
+git archive HEAD --format=zip -o deploy.zip
+```
+
+EasyPanel → **New Service → App → Upload ZIP**
+
+### Variables mínimas en EasyPanel
 
 ```env
 DATABASE_URL=postgresql://usuario:contraseña@servicio-db:5432/nombre-db
-AUTH_SECRET=<string aleatorio — genera con: openssl rand -base64 32>
+AUTH_SECRET=<openssl rand -base64 32>
 AUTH_URL=https://tu-dominio.easypanel.host
 AUTH_TRUST_HOST=true
 ADMIN_EMAIL=tu-email@dominio.com
 ADMIN_PASSWORD=tu-contraseña-segura
+NEXT_PUBLIC_BASE_URL=https://tu-dominio.easypanel.host
 ```
 
-> **Contraseñas con caracteres especiales en `DATABASE_URL`:** URL-encodea los caracteres
-> especiales del password (`$` → `%24`, `@` → `%40`, `&` → `%26`).
+> **Contraseñas con caracteres especiales en `DATABASE_URL`:** URL-encodea el password (`$` → `%24`, `@` → `%40`, `&` → `%26`).
 
 ### Qué hace el contenedor al arrancar
 
 ```
-1. prisma migrate deploy   → aplica migraciones a PostgreSQL
-2. node prisma/seed.js     → crea/sincroniza el usuario admin (actualiza password siempre)
+1. prisma migrate deploy   → aplica migraciones pendientes a PostgreSQL
+2. node prisma/seed.js     → upsert admin + reasigna leads sin usuario
 3. node server.js          → inicia Next.js standalone
 ```
 
-El seed **siempre sincroniza** la contraseña del admin con el valor actual de `ADMIN_PASSWORD`, por lo que cambiar esa variable y redesplegar actualiza las credenciales.
-
-### Dockerfile (multi-stage)
-
-| Stage | Qué hace |
-|---|---|
-| `builder` | `npm ci` + `prisma generate` + `next build` + compila `seed.ts → seed.js` |
-| `runner` | Next.js standalone + Prisma engine + `prisma` CLI vía `node_modules/prisma` |
-
----
-
-## Estructura de archivos relevante
-
-```
-src/
-  middleware.ts           → Protege rutas del CRM, permite / y /gracias sin auth
-  app/
-    (public)/             → Rutas sin auth (landing, gracias)
-      landing.css         → CSS scoped bajo .landing-root
-      page.tsx            → Landing principal
-      gracias/page.tsx    → Confirmación post-envío
-    (app)/                → Rutas con auth (CRM)
-      layout.tsx          → Verifica sesión, renderiza Sidebar + Header
-      dashboard/page.tsx
-      leads/page.tsx
-      leads/[id]/page.tsx
-      pipeline/page.tsx
-      settings/page.tsx
-    (auth)/login/page.tsx → Página de login
-    api/
-      public/leads/       → POST público de captación (rate limit 5/min)
-      leads/[id]/         → update, action, notes
-      users/              → Gestión de usuarios (solo admin)
-    robots.ts             → Genera /robots.txt
-    sitemap.ts            → Genera /sitemap.xml
-  components/
-    leads/
-      lead-detail.tsx     → Detalle completo del lead (client)
-      leads-table.tsx     → Tabla filtrable con paginación (client)
-      pipeline-board.tsx  → Tablero kanban (client)
-    public/
-      landing-form.tsx    → Formulario 2 pasos (client)
-      landing-faq.tsx     → FAQ (client)
-    ui/                   → Componentes shadcn/ui
-  lib/
-    classification.ts     → Clasificación automática + detección de duplicados
-    constants.ts          → ESTADOS_LEAD, ESTADO_COLORS, PRIORIDADES, etc.
-    auth.ts               → Configuración Auth.js v5
-    prisma.ts             → Cliente Prisma singleton
-  types/
-    next-auth.d.ts        → Augmentación: session.user.id / .role tipados
-prisma/
-  schema.prisma           → Modelos PostgreSQL + índices en campos frecuentes
-  schema.sqlite.prisma    → Schema SQLite para desarrollo local
-  seed.ts                 → Seed del admin + leads de ejemplo
-  migrations/             → Historial de migraciones PostgreSQL
-public/
-  images/                 → Imágenes de la landing (webp, jpg)
-```
+El seed **siempre sincroniza** la contraseña del admin con `ADMIN_PASSWORD`, por lo que redesplegar con una nueva contraseña la actualiza automáticamente.
 
 ---
 
@@ -217,75 +186,57 @@ public/
 User ──< Lead ──< LeadActivity
                ──< LeadStatusHistory
                ──< LeadNote
+PushSubscription  (standalone, sin FK a User)
 ```
 
-**Lead** — campos principales:
+**Campos clave del Lead:**
 
 | Campo | Descripción |
 |---|---|
-| `estadoLead` | Estado en el pipeline (Nuevo → Agendó diagnóstico → Cerrado) |
-| `categoria` | Clasificación automática (Ley 73, Modalidad 40, Invalidez, etc.) |
-| `prioridad` | Alta / Media / Baja |
-| `viabilidad` | Recomendar diagnóstico / Necesita más info / No viable |
-| `telefonoNormalizado` | 10 dígitos sin prefijo 52 — usado para deduplicar |
-| `vecesRecibido` | Cuántas veces envió el formulario |
+| `estadoLead` | `Nuevo` → `Contactado` → `Archivado` |
+| `categoria` | Clasificación automática (Ley 73, Modalidad 40, Viudez, etc.) |
+| `prioridad` | `Alta` / `Media` / `Baja` |
+| `scoreViabilidad` | 0–100; ≥70 = Candidato fuerte, ≥40 = Revisar, <40 = Baja viabilidad |
+| `segmentoInteres` | `A` (listo), `B` (interesado con dudas), `C` (curioso) — auto + manual |
+| `telefonoNormalizado` | 10 dígitos sin prefijo 52 — usado para deduplicar y links WA |
+| `vecesRecibido` | Cuántas veces envió el formulario (no incrementa en importación) |
+| `fechaProximaAccion` | Recordatorio de seguimiento — visible en dashboard y campana |
+| `resumenIA` | Párrafo de resumen interno generado una sola vez por Mistral AI |
 
 ---
-
-## Lógica de duplicados
-
-Al llegar un formulario, se busca lead existente por OR:
-- `telefonoNormalizado` igual (dígitos, sin prefijo `52`)
-- `telefono` literal igual
-- `correo` igual (normalizado a minúsculas)
-
-Si existe: `vecesRecibido += 1`, actualiza `situacion` y `fuente`, registra actividad `formulario_reenviado`. No crea registro nuevo.
 
 ## Clasificación automática
 
-En `src/lib/classification.ts`, al crear un lead nuevo:
+En `src/lib/classification.ts`, al crear un lead:
 
 | Campo | Lógica |
 |---|---|
-| **Categoría** | Palabras clave en `situacion` + `temaInteres` (Ley 73, Modalidad 40, Viudez, etc.) |
-| **Prioridad** | Alta si edad > 60, invalidez o urgencia en texto; Baja si edad < 35 |
-| **Viabilidad** | "Recomendar diagnóstico" si hay info suficiente; "No viable" si edad < 25 |
+| `categoria` | Palabras clave en `situacion` + `temaInteres` |
+| `prioridad` | Alta si edad > 60, invalidez o urgencia en texto |
+| `scoreViabilidad` | Reglas sobre categoría, semanas, pensión mínima garantizada ($10,634 MXN) |
+| `segmentoInteres` | A = objetivo específico + semanas o situación detallada; C = objetivo vago o descripción corta; B = resto |
 
 ---
 
-## API pública — POST /api/public/leads
+## Voz de marca — reglas para IA
 
-Rate limit: **5 solicitudes/minuto por IP** (en memoria).
+Los prompts de Mistral y las plantillas de texto siguen estas reglas (`src/lib/ai.ts`):
 
-**Campos requeridos:** `nombre`, `telefono`, `edad`, `ciudad`, `yaEstaPensionado`, `temaInteres`, `situacion`
-
-**Campos opcionales:** `correo`, `estado`, `tieneSemanasCotizadas`, `fuente`, `objetivoPrincipal`
-
-**Respuestas:**
-
-| Código | Significado |
-|---|---|
-| `201` | Lead nuevo creado |
-| `200` | Lead duplicado actualizado |
-| `429` | Rate limit superado |
-| `400` | Campos faltantes o inválidos |
+- **Nunca prometer aumentos ni garantizar montos.** Si el output contiene frases prohibidas (e.g. "le va a subir", "va a aumentar", "aumento asegurado"), se reintenta una vez con instrucción estricta; si persiste, se devuelve una plantilla segura hardcoded.
+- **Único cierre:** invitación al Diagnóstico de Pensión IMSS con `LANDING_URL`.
+- **Trato de usted** en todo mensaje al prospecto.
+- **Viudez:** por ser pensión derivada, no aplica el mismo tipo de revisión; no generar expectativas de aumento.
 
 ---
-
-## Roles
-
-| Rol | Acceso |
-|---|---|
-| `administrador` | Completo — incluye gestión de usuarios en /settings |
-| `asesor` | Leads, dashboard, pipeline — sin gestión de usuarios |
 
 ## Seguridad
 
-- `src/middleware.ts` — protege todas las rutas del CRM; `/`, `/gracias`, `/login` y `/api/public/*` son públicas
-- `AUTH_TRUST_HOST=true` requerido en producción detrás de reverse proxy (EasyPanel/Nginx)
-- `ALLOWED_FIELDS` whitelist en PATCH de update — solo campos autorizados modificables
-- `session.user.id` y `.role` tipados correctamente vía `src/types/next-auth.d.ts`
-- Landing CSS aislada con `.landing-root` para no interferir con Tailwind del CRM
+- `src/proxy.ts` — protege todas las rutas del CRM; públicas sin auth: `/`, `/gracias`, `/aviso-de-privacidad`, `/login`, `/api/auth/*`, `/api/public/*`
+- `AUTH_TRUST_HOST=true` requerido en producción detrás de reverse proxy
+- `ALLOWED_FIELDS` whitelist en PATCH de update — solo campos autorizados
+- `web-push` y `src/lib/push.ts` solo se importan en server-side (API routes) — nunca en componentes cliente
+- Landing CSS aislada con `.landing-root` — no interfiere con Tailwind del CRM
+- Consentimiento LFPDPPP obligatorio en el formulario público antes de enviar
 
 ---
 
