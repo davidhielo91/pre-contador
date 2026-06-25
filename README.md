@@ -100,7 +100,9 @@ npm run dev
 
 Abre [http://localhost:3000](http://localhost:3000). Login con las credenciales de `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
-> **Importante:** usa `file:./dev.db` (no `file:./prisma/dev.db`). Prisma CLI resuelve rutas relativas desde el directorio del schema (`prisma/`), por lo que `./dev.db` produce `prisma/dev.db`, que es la misma ruta que resuelve Next.js desde la raíz del proyecto.
+> **`DATABASE_URL` local:** usa `file:./dev.db` (no `file:./prisma/dev.db`). Prisma CLI resuelve rutas relativas desde el directorio del schema (`prisma/`), por lo que `./dev.db` produce `prisma/dev.db`, que es la misma ruta que resuelve Next.js desde la raíz del proyecto.
+
+> **⚠ Nunca commitees `schema.prisma` con `provider = "sqlite"`.** Después de usar `npm run db:use:sqlite` para desarrollo, corre `npm run db:use:postgres` antes de cualquier `git add`. El repo siempre debe tener el schema en PostgreSQL; de lo contrario el contenedor de producción falla al arrancar.
 
 ### Variables de entorno
 
@@ -130,8 +132,8 @@ Abre [http://localhost:3000](http://localhost:3000). Login con las credenciales 
 | `npm run lint` | ESLint |
 | `npm run db:use:sqlite` | Activa schema SQLite para desarrollo local |
 | `npm run db:use:postgres` | Restaura schema PostgreSQL para producción |
-| `npm run db:push` | Aplica el schema a la BD sin historial de migraciones |
-| `npm run db:migrate` | Crea y aplica migración con historial |
+| `npm run db:push` | Aplica el schema a la BD **local** sin historial (solo dev) |
+| `npm run db:migrate` | Crea migración con historial — requerido para campos nuevos en producción |
 | `npm run db:seed` | Crea/sincroniza admin y reasigna leads sin usuario |
 | `npm run db:studio` | Abre Prisma Studio (GUI de la BD) |
 
@@ -177,6 +179,8 @@ NEXT_PUBLIC_BASE_URL=https://tu-dominio.easypanel.host
 ```
 
 El seed **siempre sincroniza** la contraseña del admin con `ADMIN_PASSWORD`, por lo que redesplegar con una nueva contraseña la actualiza automáticamente.
+
+> **Campos nuevos en el schema:** si agregas una columna en dev con `db:push`, debes crear también el archivo de migración SQL en `prisma/migrations/` para que `migrate deploy` lo aplique en producción. Copia el formato de migraciones existentes (`ALTER TABLE "Lead" ADD COLUMN ...`) y dale un nombre con timestamp ascendente.
 
 ---
 
