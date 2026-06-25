@@ -197,32 +197,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── TESTIMONIOS ── */}
-        <section className="section section-neutral" aria-labelledby="sec-testimonios">
-          <div className="container">
-            <div className="section-header">
-              <p className="eyebrow">Casos reales</p>
-              <h2 id="sec-testimonios">Lo que descubrieron al enviarnos su caso</h2>
-              <p className="section-desc">Personas que, como tú, no sabían qué opciones tenían — hasta que revisamos su situación.</p>
-            </div>
-            <div className="testimonials-grid" role="list" aria-label="Testimonios">
-              {[
-                { q: "Descubrí que me faltaban 40 semanas cotizadas antes de ir al IMSS. Con la orientación supe que podía entrar a Modalidad 40 y mejorar mi pensión. Nunca pensé que aún estaba a tiempo. Hoy ya estoy cotizando.", m: "Persona de 63 años, Jalisco" },
-                { q: "Toda mi vida trabajé en el IMSS y creía que mi pensión estaba asegurada. Resulta que mi situación era más compleja de lo que pensaba. Me orientaron paso a paso y pude tramitar el cambio a vejez.", m: "Persona de 58 años, Chihuahua" },
-                { q: "No sabía si pertenecía a Ley 73 o Ley 97. Tenía semanas de diferentes épocas y estaba perdido. Me ayudaron a entender mi historial — y resultó que soy Ley 73 con derecho a pensión más alta.", m: "Persona de 61 años, CDMX" },
-              ].map(({ q, m }) => (
-                <blockquote key={m} className="testimonial-card" role="listitem">
-                  <p className="testimonial-quote">{q}</p>
-                  <footer className="testimonial-meta">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-                    <span>{m}</span>
-                  </footer>
-                </blockquote>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* ── PROCESO ── */}
         <section className="section section-accent" aria-labelledby="sec-proceso">
           <div className="container">
