@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -29,6 +30,7 @@ import {
   SEGMENTOS,
   SEGMENTOS_INTERES,
   SEGMENTO_INTERES_COLORS,
+  ESTADOS_LEAD,
 } from "@/lib/constants";
 import { format, differenceInHours } from "date-fns";
 import { es } from "date-fns/locale";
@@ -88,6 +90,49 @@ export function LeadsTable({
   const searchParams = useSearchParams();
   const esArchivados = tab === "archivados";
   const orden = searchParams.get("orden") || "score";
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEstado, setBulkEstado] = useState<string>(ESTADOS_LEAD[0]);
+  const [applyingBulk, setApplyingBulk] = useState(false);
+
+  const allCurrentIds = leads.map((l) => l.id);
+  const allSelected = allCurrentIds.length > 0 && allCurrentIds.every((id) => selectedIds.has(id));
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        allCurrentIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => new Set([...prev, ...allCurrentIds]));
+    }
+  }
+
+  async function applyBulkStatus() {
+    if (selectedIds.size === 0) return;
+    setApplyingBulk(true);
+    try {
+      await fetch("/api/leads/bulk-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds], estadoLead: bulkEstado }),
+      });
+      setSelectedIds(new Set());
+      router.refresh();
+    } finally {
+      setApplyingBulk(false);
+    }
+  }
 
   function setFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -214,6 +259,38 @@ export function LeadsTable({
         </p>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-primary/30 bg-primary/5">
+          <span className="text-sm font-medium text-card-foreground tabular-nums shrink-0">
+            {selectedIds.size} seleccionado{selectedIds.size !== 1 ? "s" : ""}
+          </span>
+          <Select value={bulkEstado} onValueChange={setBulkEstado}>
+            <SelectTrigger className="h-7 text-sm border-border bg-card w-auto min-w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ESTADOS_LEAD.map((e) => (
+                <SelectItem key={e} value={e}>{e}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            className="h-7 text-sm"
+            disabled={applyingBulk}
+            onClick={applyBulkStatus}
+          >
+            {applyingBulk ? "Aplicando…" : "Aplicar"}
+          </Button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto text-xs text-muted hover:text-card-foreground transition-colors"
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+
       <div className="rounded-lg border border-border bg-card shadow-[var(--shadow-card)] overflow-hidden">
         {leads.length === 0 ? (
           <div className="py-14 text-center">
@@ -228,7 +305,15 @@ export function LeadsTable({
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-5" />
+                  <TableHead className="w-8 pr-0">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer"
+                      aria-label="Seleccionar todos"
+                    />
+                  </TableHead>
                   <TableHead>Nombre / Tema</TableHead>
                   <TableHead className="hidden md:table-cell">Categoría</TableHead>
                   <TableHead className="hidden sm:table-cell">
@@ -266,13 +351,19 @@ export function LeadsTable({
                       }`}
                       onClick={() => router.push(`/leads/${lead.id}`)}
                     >
-                      {/* Indicador rojo >24h sin contacto */}
-                      <TableCell className="pr-0">
-                        {sinContactoCritico && (
-                          <div className="flex items-center justify-center">
-                            <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                          </div>
-                        )}
+                      <TableCell className="pr-0" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(lead.id)}
+                            onChange={() => toggleSelect(lead.id)}
+                            className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
+                            aria-label={`Seleccionar ${lead.nombre}`}
+                          />
+                          {sinContactoCritico && (
+                            <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          )}
+                        </div>
                       </TableCell>
 
                       {/* Nombre + Tema */}
