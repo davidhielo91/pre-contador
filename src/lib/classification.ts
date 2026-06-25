@@ -238,7 +238,7 @@ export function calcularScoreViabilidad(
   // Penalización: categoría sin datos → cap a 40
   if (
     categoria === "Requiere revisión manual" ||
-    tema === "otro"
+    tema === "otro" || tema === "no sé" || tema === "no se"
   ) {
     score = Math.min(score, 40);
   }

@@ -6,13 +6,25 @@ const RATE_LIMIT_WINDOW = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 5;
 const requestLog = new Map<string, number[]>();
 
+// Rate limit por instancia — en despliegues multi-instancia o serverless
+// este Map no se comparte entre procesos; migrar a Redis u otro store compartido.
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const timestamps = requestLog.get(ip) || [];
   const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW);
+
   if (recent.length >= MAX_REQUESTS_PER_WINDOW) return false;
+
   recent.push(now);
   requestLog.set(ip, recent);
+
+  // Elimina IPs sin actividad reciente para que el Map no crezca sin límite
+  for (const [key, times] of requestLog) {
+    if (!times.some((t) => now - t < RATE_LIMIT_WINDOW)) {
+      requestLog.delete(key);
+    }
+  }
+
   return true;
 }
 
